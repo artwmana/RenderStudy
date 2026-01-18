@@ -57,6 +57,7 @@ class EquationBlock(Block):
     latex: str
     display: bool = True
     number: str | None = None
+    terms: list[str] | None = None
 
 
 @dataclass

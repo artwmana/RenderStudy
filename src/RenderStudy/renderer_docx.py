@@ -7,6 +7,8 @@ from typing import Iterable
 
 from docx import Document as DocxDocument
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 from docx.shared import Cm, Pt
 
 from . import gost_format
@@ -38,6 +40,22 @@ class RenderState:
     figure_counters: defaultdict[int, int] = field(default_factory=lambda: defaultdict(int))
     table_counters: defaultdict[int, int] = field(default_factory=lambda: defaultdict(int))
     asset_root: Path | None = None
+
+
+LATEX_TO_UNICODE = {
+    r"\pi": "π",
+    r"\alpha": "α",
+    r"\beta": "β",
+    r"\gamma": "γ",
+    r"\delta": "δ",
+    r"\epsilon": "ε",
+    r"\theta": "θ",
+    r"\lambda": "λ",
+    r"\mu": "μ",
+    r"\sigma": "σ",
+    r"\phi": "φ",
+    r"\omega": "ω",
+}
 
 
 def render_document(doc: Document, output_path: str | Path, asset_root: Path | None = None) -> None:
@@ -123,7 +141,7 @@ def _render_paragraph(docx: DocxDocument, inline_elements: Iterable[InlineElemen
             run.font.underline = True
             gost_format.set_run_font(run)
         elif isinstance(inline, InlineEquation):
-            run = paragraph.add_run(inline.latex)
+            run = paragraph.add_run(_latex_to_plain_text(inline.latex))
             gost_format.set_run_font(run)
     gost_format.apply_body_paragraph_format(paragraph)
 
@@ -174,20 +192,28 @@ def _render_equation_block(docx: DocxDocument, block: EquationBlock, state: Rend
     state.equation_counters[section] += 1
     number = block.number or f"{section}.{state.equation_counters[section]}"
 
+    # Paragraph with center alignment and right tab for number
+    right_edge = docx.sections[0].page_width - docx.sections[0].right_margin
+    right_pos = int(right_edge / 635)  # convert EMU to twips
     paragraph = docx.add_paragraph()
     paragraph.paragraph_format.first_line_indent = Cm(0)
     paragraph.paragraph_format.line_spacing = Pt(gost_format.LINE_SPACING_PT)
-    paragraph.paragraph_format.tab_stops.add_tab_stop(
-        docx.sections[0].page_width - docx.sections[0].right_margin,
-        WD_TAB_ALIGNMENT.RIGHT,
-    )
-    run_eq = paragraph.add_run(block.latex)
-    gost_format.set_run_font(run_eq)
+    paragraph.paragraph_format.tab_stops.add_tab_stop(right_pos, WD_TAB_ALIGNMENT.RIGHT)
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    _append_math(paragraph, _latex_to_plain_text(block.latex))
     paragraph.add_run("\t")
     run_number = paragraph.add_run(f"({number})")
     gost_format.set_run_font(run_number)
 
+    # Optional description of symbols as bullet list
+    if block.terms:
+        for term in block.terms:
+            desc = docx.add_paragraph(style="List Bullet")
+            run_desc = desc.add_run(term)
+            gost_format.set_run_font(run_desc)
+            desc.paragraph_format.first_line_indent = Cm(0)
+            desc.paragraph_format.line_spacing = Pt(gost_format.LINE_SPACING_PT)
     # Blank line after
     spacer_after = docx.add_paragraph("")
     gost_format.apply_body_paragraph_format(spacer_after)
@@ -260,9 +286,36 @@ def _render_table_block(docx: DocxDocument, block: TableBlock, state: RenderStat
             for paragraph in cell.paragraphs:
                 paragraph.paragraph_format.first_line_indent = Cm(0)
                 paragraph.paragraph_format.line_spacing = Pt(gost_format.LINE_SPACING_PT)
-                for run in paragraph.runs:
-                    gost_format.set_run_font(run)
+        for run in paragraph.runs:
+            gost_format.set_run_font(run)
 
     spacer_after = docx.add_paragraph("")
     gost_format.apply_body_paragraph_format(spacer_after)
     spacer_after.paragraph_format.first_line_indent = Cm(0)
+
+
+def _latex_to_plain_text(expr: str) -> str:
+    """Convert a small subset of LaTeX commands to Unicode glyphs for DOCX text."""
+    text = expr.strip()
+    for latex, uni in LATEX_TO_UNICODE.items():
+        text = text.replace(latex, uni)
+    return text
+
+
+def _append_math(paragraph, text: str) -> None:
+    """Insert a simple Word math object centered in the paragraph."""
+    omath_para = OxmlElement("m:oMathPara")
+    omath_para_pr = OxmlElement("m:oMathParaPr")
+    jc = OxmlElement("m:jc")
+    jc.set(qn("m:val"), "center")
+    omath_para_pr.append(jc)
+    omath_para.append(omath_para_pr)
+    oMath = OxmlElement("m:oMath")
+
+    run = OxmlElement("m:r")
+    text_el = OxmlElement("m:t")
+    text_el.text = text
+    run.append(text_el)
+    oMath.append(run)
+    omath_para.append(oMath)
+    paragraph._p.append(omath_para)
