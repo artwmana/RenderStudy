@@ -1,0 +1,2 @@
+[console_scripts]
+RenderStudy = RenderStudy.cli:main

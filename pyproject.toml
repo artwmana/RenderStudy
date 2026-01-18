@@ -1,0 +1,28 @@
+[project]
+name = "RenderStudy"
+version = "0.1.0"
+description = "Convert Markdown to DOCX formatted per BSUIR STP 01-2024 (diploma/coursework)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Artem Golubev" }
+]
+dependencies = [
+    "python-docx>=1.1.0",
+    "markdown-it-py>=3.0.0",
+    "mdit-py-plugins>=0.4.0",
+]
+
+[project.scripts]
+RenderStudy = "RenderStudy.cli:main"
+
+[project.optional-dependencies]
+test = ["pytest>=7.4"]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
