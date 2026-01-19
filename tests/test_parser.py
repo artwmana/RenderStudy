@@ -8,6 +8,7 @@ from RenderStudy.model import (
     InlineEquation,
     ListBlock,
     Paragraph,
+    TableBlock,
 )
 
 
@@ -56,6 +57,15 @@ def test_parse_yaml_structure():
             - "E — энергия"
             - "m — масса"
             - "c — скорость света"
+        table:
+          caption: "Параметры"
+          header: ["Ключ", "Значение"]
+          rows:
+            - ["a", "1"]
+            - ["b", "2"]
+        code_block: |
+          print("hello")
+        extra_paragraph: "Дополнительный текст."
         """
     )
     document = yaml_parser.parse_yaml_document(yaml_text)
@@ -67,3 +77,4 @@ def test_parse_yaml_structure():
     assert isinstance(document.blocks[5], ImageBlock)
     assert isinstance(document.blocks[6], EquationBlock)
     assert document.blocks[6].terms and len(document.blocks[6].terms) == 3
+    assert isinstance(document.blocks[7], TableBlock)

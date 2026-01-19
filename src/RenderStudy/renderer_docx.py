@@ -40,6 +40,7 @@ class RenderState:
     figure_counters: defaultdict[int, int] = field(default_factory=lambda: defaultdict(int))
     table_counters: defaultdict[int, int] = field(default_factory=lambda: defaultdict(int))
     asset_root: Path | None = None
+    first_heading_rendered: bool = False
 
 
 LATEX_TO_UNICODE = {
@@ -93,17 +94,24 @@ def _dispatch_block(docx: DocxDocument, block: Block, state: RenderState) -> Non
 
 
 def _render_heading(docx: DocxDocument, heading: Heading, state: RenderState) -> None:
+    if heading.level == 1 and state.first_heading_rendered:
+        docx.add_page_break()
     number = _compute_heading_number(heading, state)
-    text = f"{number} {heading.text}" if heading.numbered and number else heading.text
+    heading_text = heading.text.upper() if heading.level == 1 else heading.text
+    text = f"{number} {heading_text}" if heading.numbered and number else heading_text
     paragraph = docx.add_paragraph(text)
     centered = not heading.numbered
+    with_indent = False
     for run in paragraph.runs:
         run.bold = True
-    gost_format.apply_heading_format(paragraph, centered=centered)
+    gost_format.apply_heading_format(paragraph, centered=centered, with_indent=with_indent)
 
-    # Ensure blank line after heading
+    # Blank line after heading
     spacer = docx.add_paragraph("")
     gost_format.apply_body_paragraph_format(spacer)
+    spacer.paragraph_format.first_line_indent = Cm(0)
+
+    state.first_heading_rendered = True
 
 
 def _compute_heading_number(heading: Heading, state: RenderState) -> str | None:
@@ -147,26 +155,34 @@ def _render_paragraph(docx: DocxDocument, inline_elements: Iterable[InlineElemen
 
 
 def _render_list(docx: DocxDocument, block: ListBlock, state: RenderState) -> None:
-    style = "List Number" if block.ordered else "List Bullet"
-    for item in block.items:
-        paragraph = docx.add_paragraph(style=style)
-        # Render first block of list item inline in this paragraph when possible
+    # Ensure preceding paragraph ends with colon for list intro
+    if docx.paragraphs:
+        prev = docx.paragraphs[-1]
+        if prev.text and not prev.text.rstrip().endswith(":"):
+            prev.text = prev.text.rstrip().rstrip(".,;") + ":"
+            for run in prev.runs:
+                gost_format.set_run_font(run)
+
+    for idx, item in enumerate(block.items, start=1):
+        paragraph = docx.add_paragraph()
+        text_parts = []
         if item.blocks and isinstance(item.blocks[0], Paragraph):
-            for inline in item.blocks[0].inline:
-                if isinstance(inline, InlineText):
-                    run = paragraph.add_run(inline.text)
-                    gost_format.set_run_font(run, bold=inline.bold, italic=inline.italic, code=inline.code)
-                elif isinstance(inline, InlineEquation):
-                    run = paragraph.add_run(inline.latex)
-                    gost_format.set_run_font(run)
-                elif isinstance(inline, InlineLink):
-                    run = paragraph.add_run(inline.text)
-                    run.font.underline = True
-                    gost_format.set_run_font(run)
+            text_parts.append(_inline_to_text(item.blocks[0].inline))
             remaining_blocks = item.blocks[1:]
         else:
             remaining_blocks = item.blocks
-        gost_format.apply_body_paragraph_format(paragraph)
+
+        base_text = " ".join(part.strip() for part in text_parts if part.strip())
+        formatted_text = _format_list_text(base_text, is_last=idx == len(block.items), ordered=block.ordered)
+        prefix = f"{idx} " if block.ordered else "– "
+        run = paragraph.add_run(prefix + formatted_text)
+        gost_format.set_run_font(run)
+        paragraph.paragraph_format.first_line_indent = Cm(gost_format.FIRST_LINE_INDENT_CM)
+        paragraph.paragraph_format.left_indent = Cm(0)
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        paragraph.paragraph_format.line_spacing = Pt(gost_format.LINE_SPACING_PT)
+        paragraph.paragraph_format.space_after = Pt(0)
+
         for sub_block in remaining_blocks:
             _dispatch_block(docx, sub_block, state)
 
@@ -206,14 +222,9 @@ def _render_equation_block(docx: DocxDocument, block: EquationBlock, state: Rend
     run_number = paragraph.add_run(f"({number})")
     gost_format.set_run_font(run_number)
 
-    # Optional description of symbols as bullet list
+    # Optional description of symbols as aligned list starting with "где"
     if block.terms:
-        for term in block.terms:
-            desc = docx.add_paragraph(style="List Bullet")
-            run_desc = desc.add_run(term)
-            gost_format.set_run_font(run_desc)
-            desc.paragraph_format.first_line_indent = Cm(0)
-            desc.paragraph_format.line_spacing = Pt(gost_format.LINE_SPACING_PT)
+        _render_equation_terms(docx, block.terms)
     # Blank line after
     spacer_after = docx.add_paragraph("")
     gost_format.apply_body_paragraph_format(spacer_after)
@@ -254,7 +265,7 @@ def _render_image_block(docx: DocxDocument, block: ImageBlock, state: RenderStat
     caption_number = f"{section}.{state.figure_counters[section]}"
     caption_text = block.caption or (block.alt or "").strip() or "Описание рисунка"
     caption_paragraph = docx.add_paragraph(f"Рисунок {caption_number} – {caption_text}")
-    gost_format.apply_caption_format(caption_paragraph)
+    gost_format.apply_caption_format(caption_paragraph, centered=True)
 
     spacer_after = docx.add_paragraph("")
     gost_format.apply_body_paragraph_format(spacer_after)
@@ -267,7 +278,7 @@ def _render_table_block(docx: DocxDocument, block: TableBlock, state: RenderStat
     caption_number = f"{section}.{state.table_counters[section]}"
     caption_text = block.caption or "Название таблицы"
     title = docx.add_paragraph(f"Таблица {caption_number} – {caption_text}")
-    gost_format.apply_caption_format(title)
+    gost_format.apply_caption_format(title, space_after=0)
 
     row_count = len(block.rows)
     col_count = len(block.header) if len(block.header) > 0 else (len(block.rows[0]) if block.rows else 1)
@@ -302,6 +313,31 @@ def _latex_to_plain_text(expr: str) -> str:
     return text
 
 
+def _inline_to_text(inlines: Iterable[InlineElement]) -> str:
+    parts: list[str] = []
+    for inline in inlines:
+        if isinstance(inline, InlineText):
+            parts.append(inline.text)
+        elif isinstance(inline, InlineEquation):
+            parts.append(inline.latex)
+        elif isinstance(inline, InlineLink):
+            parts.append(inline.text)
+    return "".join(parts)
+
+
+def _format_list_text(text: str, is_last: bool, ordered: bool) -> str:
+    clean = text.strip()
+    if not clean:
+        return clean
+    end = clean[-1]
+    if end not in ".;":
+        clean += "." if is_last else ";"
+    else:
+        if not is_last and end == ".":
+            clean = clean[:-1] + ";"
+    return clean
+
+
 def _append_math(paragraph, text: str) -> None:
     """Insert a simple Word math object centered in the paragraph."""
     omath_para = OxmlElement("m:oMathPara")
@@ -319,3 +355,37 @@ def _append_math(paragraph, text: str) -> None:
     oMath.append(run)
     omath_para.append(oMath)
     paragraph._p.append(omath_para)
+
+
+def _render_equation_terms(docx: DocxDocument, terms: list[str]) -> None:
+    tab_pos = Cm(3).twips  # align dash/definition after symbol
+    for idx, term in enumerate(terms):
+        symbol, description = _split_term(term)
+        description = description.strip()
+        if description and not description.endswith(";"):
+            description += ";"
+        paragraph = docx.add_paragraph()
+        paragraph.paragraph_format.first_line_indent = Cm(0)
+        paragraph.paragraph_format.left_indent = Cm(0)
+        paragraph.paragraph_format.line_spacing = Pt(gost_format.LINE_SPACING_PT)
+        paragraph.paragraph_format.space_before = Pt(0)
+        paragraph.paragraph_format.space_after = Pt(0)
+        paragraph.paragraph_format.tab_stops.add_tab_stop(tab_pos, WD_TAB_ALIGNMENT.LEFT)
+
+        if idx == 0:
+            run_where = paragraph.add_run("где ")
+            gost_format.set_run_font(run_where)
+        run_sym = paragraph.add_run(symbol)
+        gost_format.set_run_font(run_sym)
+        paragraph.add_run("\t")
+        run_desc = paragraph.add_run(f"– {description}")
+        gost_format.set_run_font(run_desc)
+
+
+def _split_term(term: str) -> tuple[str, str]:
+    parts = term.split("—", 1)
+    if len(parts) == 1:
+        parts = term.split("-", 1)
+    if len(parts) == 2:
+        return parts[0].strip(), parts[1].strip()
+    return term.strip(), ""
