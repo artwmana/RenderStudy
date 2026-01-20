@@ -120,11 +120,13 @@ def _build_table(table_value) -> TableBlock | None:
 
 
 def _paragraphs_from_text(text: str) -> list[Paragraph]:
-    """Split text into paragraphs on blank lines while preserving leading spaces."""
+    """Split text into paragraphs on blank lines and collapse internal line breaks."""
     parts = [p for p in text.split("\n\n") if p.strip()]
-    if not parts:
-        return []
-    return [Paragraph(inline=[InlineText(part)]) for part in parts]
+    paragraphs: list[Paragraph] = []
+    for part in parts:
+        cleaned = " ".join(line.strip() for line in part.splitlines() if line.strip() != "")
+        paragraphs.append(Paragraph(inline=[InlineText(cleaned)]))
+    return paragraphs
 
 
 def _parse_body_sequence(body: list) -> list[Block]:

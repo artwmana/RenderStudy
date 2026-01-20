@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Iterable
 
 from docx import Document as DocxDocument
+from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -284,6 +285,7 @@ def _render_table_block(docx: DocxDocument, block: TableBlock, state: RenderStat
     col_count = len(block.header) if len(block.header) > 0 else (len(block.rows[0]) if block.rows else 1)
     table = docx.add_table(rows=1 + row_count, cols=col_count)
     table.style = "Table Grid"
+    table.alignment = WD_TABLE_ALIGNMENT.LEFT
     if block.header:
         for idx, cell_text in enumerate(block.header):
             cell = table.cell(0, idx)
