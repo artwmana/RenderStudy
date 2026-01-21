@@ -209,18 +209,35 @@ def _render_equation_block(docx: DocxDocument, block: EquationBlock, state: Rend
     state.equation_counters[section] += 1
     number = block.number or f"{section}.{state.equation_counters[section]}"
 
-    # Paragraph with center alignment and right tab for number
-    right_edge = docx.sections[0].page_width - docx.sections[0].right_margin
-    right_pos = int(right_edge / 635)  # convert EMU to twips
-    paragraph = docx.add_paragraph()
-    paragraph.paragraph_format.first_line_indent = Cm(0)
-    paragraph.paragraph_format.line_spacing = Pt(gost_format.LINE_SPACING_PT)
-    paragraph.paragraph_format.tab_stops.add_tab_stop(right_pos, WD_TAB_ALIGNMENT.RIGHT)
-    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    # Use a 2-column table to keep formula centered and number at the right edge
+    section = docx.sections[0]
+    text_width = section.page_width - section.left_margin - section.right_margin
+    text_width_cm = text_width / 360000  # EMU to cm
+    min_number_cm = 1.0
+    est_formula_cm = max(4.0, len(block.latex) * 0.2)
+    formula_width_cm = min(text_width_cm - min_number_cm, max(text_width_cm * 0.65, est_formula_cm))
+    number_width_cm = max(min_number_cm, text_width_cm - formula_width_cm)
 
-    _append_math(paragraph, _latex_to_plain_text(block.latex))
-    paragraph.add_run("\t")
-    run_number = paragraph.add_run(f"({number})")
+    table = docx.add_table(rows=1, cols=2)
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    table.autofit = False
+    table.columns[0].width = Cm(formula_width_cm)
+    table.columns[1].width = Cm(number_width_cm)
+    _clear_table_borders(table)
+
+    cell_formula = table.cell(0, 0)
+    p_formula = cell_formula.paragraphs[0]
+    p_formula.paragraph_format.first_line_indent = Cm(0)
+    p_formula.paragraph_format.line_spacing = Pt(gost_format.LINE_SPACING_PT)
+    p_formula.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    _append_math(p_formula, _latex_to_plain_text(block.latex))
+
+    cell_num = table.cell(0, 1)
+    p_num = cell_num.paragraphs[0]
+    p_num.paragraph_format.first_line_indent = Cm(0)
+    p_num.paragraph_format.line_spacing = Pt(gost_format.LINE_SPACING_PT)
+    p_num.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    run_number = p_num.add_run(f"({number})")
     gost_format.set_run_font(run_number)
 
     # Optional description of symbols as aligned list starting with "где"
@@ -286,6 +303,7 @@ def _render_table_block(docx: DocxDocument, block: TableBlock, state: RenderStat
     table = docx.add_table(rows=1 + row_count, cols=col_count)
     table.style = "Table Grid"
     table.alignment = WD_TABLE_ALIGNMENT.LEFT
+    _set_table_indent(table, Cm(0.2))
     if block.header:
         for idx, cell_text in enumerate(block.header):
             cell = table.cell(0, idx)
@@ -345,7 +363,7 @@ def _append_math(paragraph, text: str) -> None:
     omath_para = OxmlElement("m:oMathPara")
     omath_para_pr = OxmlElement("m:oMathParaPr")
     jc = OxmlElement("m:jc")
-    jc.set(qn("m:val"), "center")
+    jc.set(qn("m:val"), "right")
     omath_para_pr.append(jc)
     omath_para.append(omath_para_pr)
     oMath = OxmlElement("m:oMath")
@@ -391,3 +409,34 @@ def _split_term(term: str) -> tuple[str, str]:
     if len(parts) == 2:
         return parts[0].strip(), parts[1].strip()
     return term.strip(), ""
+
+
+def _clear_table_borders(table) -> None:
+    tbl = table._element
+    tbl_pr = tbl.tblPr
+    if tbl_pr is None:
+        return
+    for child in list(tbl_pr):
+        if child.tag == qn("w:tblBorders"):
+            tbl_pr.remove(child)
+    borders = OxmlElement("w:tblBorders")
+    for border_name in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        border = OxmlElement(f"w:{border_name}")
+        border.set(qn("w:val"), "nil")
+        borders.append(border)
+    tbl_pr.append(borders)
+
+
+def _set_table_indent(table, indent: Cm) -> None:
+    tbl = table._element
+    tbl_pr = tbl.tblPr
+    if tbl_pr is None:
+        return
+    # remove existing indent
+    for child in list(tbl_pr):
+        if child.tag == qn("w:tblInd"):
+            tbl_pr.remove(child)
+    ind = OxmlElement("w:tblInd")
+    ind.set(qn("w:w"), str(int(indent.twips)))
+    ind.set(qn("w:type"), "dxa")
+    tbl_pr.append(ind)

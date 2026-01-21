@@ -33,8 +33,11 @@ def test_equation_renders_symbols(tmp_path: Path):
     texts = []
     for p in reader.paragraphs:
         texts.append(p._p.xml)
-    # terms are paragraphs after equation
-    texts.extend(p._p.xml for p in reader.paragraphs)
+    for table in reader.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    texts.append(p._p.xml)
     xml = "\n".join(texts)
     assert "π" in xml
     assert "<m:oMath" in xml
