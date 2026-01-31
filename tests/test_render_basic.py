@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from docx import Document as DocxReader
+
 from RenderStudy.model import Document, EquationBlock, Heading, InlineText, Paragraph
 from RenderStudy.renderer_docx import render_document
 
@@ -16,3 +18,27 @@ def test_render_creates_docx(tmp_path: Path):
     render_document(doc, output_file)
     assert output_file.exists()
     assert output_file.stat().st_size > 0
+
+
+def test_equation_renders_symbols(tmp_path: Path):
+    doc = Document(
+        blocks=[
+            Heading(level=1, text="Раздел", numbered=True, raw_number="1"),
+            EquationBlock(latex="S = \\pi r^2", display=True, terms=["S — площадь круга", "r — радиус"]),
+        ]
+    )
+    out = tmp_path / "eq.docx"
+    render_document(doc, out)
+    reader = DocxReader(out)
+    texts = []
+    for p in reader.paragraphs:
+        texts.append(p._p.xml)
+    for table in reader.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    texts.append(p._p.xml)
+    xml = "\n".join(texts)
+    assert "π" in xml
+    assert "<m:oMath" in xml
+    assert "где" in xml

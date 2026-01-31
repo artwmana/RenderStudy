@@ -1,4 +1,6 @@
-from RenderStudy import markdown_parser
+import textwrap
+
+from RenderStudy import markdown_parser, yaml_parser
 from RenderStudy.model import (
     EquationBlock,
     Heading,
@@ -6,6 +8,7 @@ from RenderStudy.model import (
     InlineEquation,
     ListBlock,
     Paragraph,
+    TableBlock,
 )
 
 
@@ -31,3 +34,47 @@ $$
     assert isinstance(document.blocks[2], ListBlock)
     assert isinstance(document.blocks[3], ImageBlock)
     assert isinstance(document.blocks[4], EquationBlock)
+
+
+def test_parse_yaml_structure():
+    yaml_text = textwrap.dedent(
+        """
+        title: "1 Введение"
+        subtitle: "1.1 Цель"
+        context: "Тестовый абзац."
+        ordered_list:
+          - Первый
+          - Второй
+        bullet_list:
+          - Пункт A
+          - Пункт B
+        image:
+          path: "diagram.png"
+          caption: "Схема"
+        formula:
+          expression: "E = mc^2"
+          terms:
+            - "E — энергия"
+            - "m — масса"
+            - "c — скорость света"
+        table:
+          caption: "Параметры"
+          header: ["Ключ", "Значение"]
+          rows:
+            - ["a", "1"]
+            - ["b", "2"]
+        code_block: |
+          print("hello")
+        extra_paragraph: "Дополнительный текст."
+        """
+    )
+    document = yaml_parser.parse_yaml_document(yaml_text)
+    assert isinstance(document.blocks[0], Heading)
+    assert isinstance(document.blocks[1], Heading)
+    assert isinstance(document.blocks[2], Paragraph)
+    assert isinstance(document.blocks[3], ListBlock) and document.blocks[3].ordered
+    assert isinstance(document.blocks[4], ListBlock) and not document.blocks[4].ordered
+    assert isinstance(document.blocks[5], ImageBlock)
+    assert isinstance(document.blocks[6], EquationBlock)
+    assert document.blocks[6].terms and len(document.blocks[6].terms) == 3
+    assert isinstance(document.blocks[7], TableBlock)

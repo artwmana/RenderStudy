@@ -44,18 +44,18 @@ def apply_body_paragraph_format(paragraph) -> None:
     paragraph.paragraph_format.first_line_indent = Cm(FIRST_LINE_INDENT_CM)
 
 
-def apply_heading_format(paragraph, centered: bool = False) -> None:
+def apply_heading_format(paragraph, centered: bool = False, with_indent: bool = False) -> None:
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER if centered else WD_ALIGN_PARAGRAPH.LEFT
-    paragraph.paragraph_format.space_after = Pt(LINE_SPACING_PT)
+    paragraph.paragraph_format.space_after = Pt(0)
     paragraph.paragraph_format.space_before = Pt(0)
-    paragraph.paragraph_format.first_line_indent = Cm(0)
+    paragraph.paragraph_format.first_line_indent = Cm(FIRST_LINE_INDENT_CM if with_indent else 0)
     for run in paragraph.runs:
         _set_run_font(run, bold=True)
 
 
-def apply_caption_format(paragraph) -> None:
-    paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    paragraph.paragraph_format.space_after = Pt(LINE_SPACING_PT)
+def apply_caption_format(paragraph, centered: bool = False, space_after: float | None = LINE_SPACING_PT) -> None:
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER if centered else WD_ALIGN_PARAGRAPH.LEFT
+    paragraph.paragraph_format.space_after = Pt(space_after) if space_after is not None else Pt(0)
     paragraph.paragraph_format.space_before = Pt(0)
     paragraph.paragraph_format.first_line_indent = Cm(0)
     for run in paragraph.runs:

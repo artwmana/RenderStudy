@@ -4,7 +4,7 @@ import argparse
 import logging
 from pathlib import Path
 
-from . import markdown_parser, renderer_docx
+from . import markdown_parser, renderer_docx, yaml_parser
 from .utils import configure_logging, read_markdown, resolve_output_path
 
 
@@ -31,8 +31,12 @@ def main(argv: list[str] | None = None) -> None:
     markdown_text = read_markdown(input_path)
     logging.debug("Markdown length: %d chars", len(markdown_text))
 
-    logging.info("Parsing markdown...")
-    document = markdown_parser.parse_markdown(markdown_text)
+    if input_path.suffix.lower() in {".yaml", ".yml"}:
+        logging.info("Parsing YAML structured document...")
+        document = yaml_parser.parse_yaml_document(markdown_text)
+    else:
+        logging.info("Parsing markdown...")
+        document = markdown_parser.parse_markdown(markdown_text)
 
     logging.info("Rendering DOCX to %s", output_path)
     renderer_docx.render_document(document, output_path=output_path, asset_root=input_path.parent)
