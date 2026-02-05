@@ -81,7 +81,21 @@ def _parse_blocks(tokens, index: int, stop_types: set[str]) -> tuple[list, int]:
             i += 1
         elif tok.type == "math_block":
             latex = tok.content.strip()
-            blocks.append(EquationBlock(latex=latex, display=True, number=None))
+            terms = None
+            # Look ahead for a paragraph with symbol explanations (e.g., "S - ...")
+            if i + 1 < len(tokens) and tokens[i + 1].type == "paragraph_open":
+                inline = tokens[i + 2] if i + 2 < len(tokens) else None
+                if inline and inline.type == "inline":
+                    lines = _inline_lines(inline.children or [])
+                    if lines and all(_looks_like_term(line) for line in lines):
+                        terms = [
+                            _strip_where_prefix(line)
+                            for line in lines
+                            if line.strip()
+                        ]
+                        # consume paragraph_open, inline, paragraph_close
+                        i += 3
+            blocks.append(EquationBlock(latex=latex, display=True, number=None, terms=terms))
             i += 1
         elif tok.type == "hr":
             blocks.append(HorizontalRule())
@@ -205,6 +219,31 @@ def _inline_text_from_children(children: Iterable) -> str:
         elif child.type == "code_inline":
             texts.append(child.content)
     return "".join(texts)
+
+
+def _inline_lines(children: Iterable) -> list[str]:
+    lines: list[str] = [""]
+    for child in children:
+        if child.type == "text":
+            lines[-1] += child.content
+        elif child.type == "code_inline":
+            lines[-1] += child.content
+        elif child.type in {"softbreak", "hardbreak"}:
+            lines.append("")
+    return [line.strip() for line in lines if line.strip()]
+
+
+def _looks_like_term(line: str) -> bool:
+    return "-" in line or "—" in line
+
+
+def _strip_where_prefix(line: str) -> str:
+    stripped = line.strip()
+    if stripped.lower().startswith("где "):
+        return stripped[4:].strip()
+    if stripped.lower().startswith("where "):
+        return stripped[6:].strip()
+    return stripped
 
 
 def _extract_heading_parts(text: str) -> tuple[str, str | None, bool]:
