@@ -1,0 +1,13 @@
+# python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# packaging
+*.egg-info/
+build/
+dist/
+
+# artifacts
+*.pdf

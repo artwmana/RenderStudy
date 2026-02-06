@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Iterable, List
+from typing import Iterable, List, Sequence
 
 from markdown_it import MarkdownIt
 from mdit_py_plugins.texmath import texmath_plugin
@@ -81,7 +81,13 @@ def _parse_blocks(tokens, index: int, stop_types: set[str]) -> tuple[list, int]:
             i += 1
         elif tok.type == "math_block":
             latex = tok.content.strip()
-            blocks.append(EquationBlock(latex=latex, display=True, number=None))
+            terms = None
+            # Look ahead for one or more paragraphs with symbol explanations
+            if i + 1 < len(tokens):
+                terms, consumed = _collect_term_paragraphs(tokens, i + 1)
+                if consumed:
+                    i += consumed
+            blocks.append(EquationBlock(latex=latex, display=True, number=None, terms=terms))
             i += 1
         elif tok.type == "hr":
             blocks.append(HorizontalRule())
@@ -205,6 +211,51 @@ def _inline_text_from_children(children: Iterable) -> str:
         elif child.type == "code_inline":
             texts.append(child.content)
     return "".join(texts)
+
+
+def _inline_lines(children: Iterable) -> list[str]:
+    lines: list[str] = [""]
+    for child in children:
+        if child.type == "text":
+            lines[-1] += child.content
+        elif child.type == "code_inline":
+            lines[-1] += child.content
+        elif child.type in {"softbreak", "hardbreak"}:
+            lines.append("")
+    return [line.strip() for line in lines if line.strip()]
+
+
+def _looks_like_term(line: str) -> bool:
+    return "-" in line or "—" in line
+
+
+def _strip_where_prefix(line: str) -> str:
+    stripped = line.strip()
+    if stripped.lower().startswith("где "):
+        return stripped[4:].strip()
+    if stripped.lower().startswith("where "):
+        return stripped[6:].strip()
+    return stripped
+
+
+def _collect_term_paragraphs(tokens, index: int) -> tuple[list[str] | None, int]:
+    terms: list[str] = []
+    i = index
+    consumed = 0
+    while i + 2 < len(tokens) and tokens[i].type == "paragraph_open":
+        inline = tokens[i + 1]
+        if inline.type != "inline":
+            break
+        lines = _inline_lines(inline.children or [])
+        if not lines or not all(_looks_like_term(line) or line.lower().startswith("где ") for line in lines):
+            break
+        for line in lines:
+            stripped = _strip_where_prefix(line)
+            if stripped:
+                terms.append(stripped)
+        i += 3
+        consumed += 3
+    return (terms if terms else None), consumed
 
 
 def _extract_heading_parts(text: str) -> tuple[str, str | None, bool]:
