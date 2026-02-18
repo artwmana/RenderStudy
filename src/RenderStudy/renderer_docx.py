@@ -3,11 +3,12 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
+import re
 from typing import Iterable
 
 from docx import Document as DocxDocument
 from docx.enum.table import WD_TABLE_ALIGNMENT
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt
@@ -57,6 +58,80 @@ LATEX_TO_UNICODE = {
     r"\sigma": "σ",
     r"\phi": "φ",
     r"\omega": "ω",
+    r"\sum": "∑",
+}
+
+SUBSCRIPT_MAP = {
+    "0": "₀",
+    "1": "₁",
+    "2": "₂",
+    "3": "₃",
+    "4": "₄",
+    "5": "₅",
+    "6": "₆",
+    "7": "₇",
+    "8": "₈",
+    "9": "₉",
+    "a": "ₐ",
+    "e": "ₑ",
+    "h": "ₕ",
+    "i": "ᵢ",
+    "j": "ⱼ",
+    "k": "ₖ",
+    "l": "ₗ",
+    "m": "ₘ",
+    "n": "ₙ",
+    "o": "ₒ",
+    "p": "ₚ",
+    "r": "ᵣ",
+    "s": "ₛ",
+    "t": "ₜ",
+    "u": "ᵤ",
+    "v": "ᵥ",
+    "x": "ₓ",
+}
+
+SUPERSCRIPT_MAP = {
+    "0": "⁰",
+    "1": "¹",
+    "2": "²",
+    "3": "³",
+    "4": "⁴",
+    "5": "⁵",
+    "6": "⁶",
+    "7": "⁷",
+    "8": "⁸",
+    "9": "⁹",
+    "+": "⁺",
+    "-": "⁻",
+    "=": "⁼",
+    "(": "⁽",
+    ")": "⁾",
+    "a": "ᵃ",
+    "b": "ᵇ",
+    "c": "ᶜ",
+    "d": "ᵈ",
+    "e": "ᵉ",
+    "f": "ᶠ",
+    "g": "ᵍ",
+    "h": "ʰ",
+    "i": "ⁱ",
+    "j": "ʲ",
+    "k": "ᵏ",
+    "l": "ˡ",
+    "m": "ᵐ",
+    "n": "ⁿ",
+    "o": "ᵒ",
+    "p": "ᵖ",
+    "r": "ʳ",
+    "s": "ˢ",
+    "t": "ᵗ",
+    "u": "ᵘ",
+    "v": "ᵛ",
+    "w": "ʷ",
+    "x": "ˣ",
+    "y": "ʸ",
+    "z": "ᶻ",
 }
 
 
@@ -97,12 +172,18 @@ def _dispatch_block(docx: DocxDocument, block: Block, state: RenderState) -> Non
 def _render_heading(docx: DocxDocument, heading: Heading, state: RenderState) -> None:
     if heading.level == 1 and state.first_heading_rendered:
         docx.add_page_break()
+    if docx.paragraphs and docx.paragraphs[-1].text.strip():
+        spacer_before = docx.add_paragraph("")
+        gost_format.apply_body_paragraph_format(spacer_before)
+        spacer_before.paragraph_format.first_line_indent = Cm(0)
     number = _compute_heading_number(heading, state)
     heading_text = heading.text.upper() if heading.level == 1 else heading.text
     text = f"{number} {heading_text}" if heading.numbered and number else heading_text
     paragraph = docx.add_paragraph(text)
+    style_level = min(max(heading.level, 1), 3)
+    paragraph.style = f"Heading {style_level}"
     centered = not heading.numbered
-    with_indent = False
+    with_indent = heading.numbered
     for run in paragraph.runs:
         run.bold = True
     gost_format.apply_heading_format(paragraph, centered=centered, with_indent=with_indent)
@@ -209,30 +290,31 @@ def _render_equation_block(docx: DocxDocument, block: EquationBlock, state: Rend
     state.equation_counters[section] += 1
     number = block.number or f"{section}.{state.equation_counters[section]}"
 
-    # Use a 2-column table to keep formula centered and number at the right edge
+    # Use a 3-column table so the formula is centered on the full text line
+    # and the number stays right-aligned at the page margin.
     section = docx.sections[0]
     text_width = section.page_width - section.left_margin - section.right_margin
     text_width_cm = text_width / 360000  # EMU to cm
-    min_number_cm = 1.0
-    est_formula_cm = max(4.0, len(block.latex) * 0.2)
-    formula_width_cm = min(text_width_cm - min_number_cm, max(text_width_cm * 0.65, est_formula_cm))
-    number_width_cm = max(min_number_cm, text_width_cm - formula_width_cm)
+    number_width_cm = 2.2
+    side_width_cm = number_width_cm
+    formula_width_cm = max(1.0, text_width_cm - side_width_cm - number_width_cm)
 
-    table = docx.add_table(rows=1, cols=2)
+    table = docx.add_table(rows=1, cols=3)
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     table.autofit = False
-    table.columns[0].width = Cm(formula_width_cm)
-    table.columns[1].width = Cm(number_width_cm)
+    table.columns[0].width = Cm(side_width_cm)
+    table.columns[1].width = Cm(formula_width_cm)
+    table.columns[2].width = Cm(number_width_cm)
     _clear_table_borders(table)
 
-    cell_formula = table.cell(0, 0)
+    cell_formula = table.cell(0, 1)
     p_formula = cell_formula.paragraphs[0]
     p_formula.paragraph_format.first_line_indent = Cm(0)
     p_formula.paragraph_format.line_spacing = Pt(gost_format.LINE_SPACING_PT)
-    p_formula.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    _append_math(p_formula, _latex_to_plain_text(block.latex))
+    p_formula.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _append_math(p_formula, _latex_to_plain_text(block.latex, convert_scripts=False))
 
-    cell_num = table.cell(0, 1)
+    cell_num = table.cell(0, 2)
     p_num = cell_num.paragraphs[0]
     p_num.paragraph_format.first_line_indent = Cm(0)
     p_num.paragraph_format.line_spacing = Pt(gost_format.LINE_SPACING_PT)
@@ -317,20 +399,39 @@ def _render_table_block(docx: DocxDocument, block: TableBlock, state: RenderStat
             for paragraph in cell.paragraphs:
                 paragraph.paragraph_format.first_line_indent = Cm(0)
                 paragraph.paragraph_format.line_spacing = Pt(gost_format.LINE_SPACING_PT)
-        for run in paragraph.runs:
-            gost_format.set_run_font(run)
+                for run in paragraph.runs:
+                    gost_format.set_run_font(run)
 
     spacer_after = docx.add_paragraph("")
     gost_format.apply_body_paragraph_format(spacer_after)
     spacer_after.paragraph_format.first_line_indent = Cm(0)
 
 
-def _latex_to_plain_text(expr: str) -> str:
+def _latex_to_plain_text(expr: str, convert_scripts: bool = True) -> str:
     """Convert a small subset of LaTeX commands to Unicode glyphs for DOCX text."""
     text = expr.strip()
     for latex, uni in LATEX_TO_UNICODE.items():
         text = text.replace(latex, uni)
+    if convert_scripts:
+        text = _convert_scripts(text, subscript=True)
+        text = _convert_scripts(text, subscript=False)
     return text
+
+
+def _convert_scripts(text: str, subscript: bool) -> str:
+    marker = "_" if subscript else "^"
+    mapping = SUBSCRIPT_MAP if subscript else SUPERSCRIPT_MAP
+    pattern = rf"\{marker}(\{{[^}}]+\}}|[A-Za-z0-9+\-=()])"
+
+    def repl(match) -> str:
+        token = match.group(1)
+        value = token[1:-1] if token.startswith("{") and token.endswith("}") else token
+        converted = "".join(mapping.get(ch, ch) for ch in value)
+        if converted == value:
+            return f"{marker}{token}"
+        return converted
+
+    return re.sub(pattern, repl, text)
 
 
 def _inline_to_text(inlines: Iterable[InlineElement]) -> str:
@@ -350,11 +451,13 @@ def _format_list_text(text: str, is_last: bool, ordered: bool) -> str:
     if not clean:
         return clean
     end = clean[-1]
-    if end not in ".;":
-        clean += "." if is_last else ";"
-    else:
-        if not is_last and end == ".":
-            clean = clean[:-1] + ";"
+    if ordered:
+        if end != ".":
+            clean = clean.rstrip(";") + "."
+        return clean
+    if end in ".;":
+        clean = clean[:-1]
+    clean += "." if is_last else ";"
     return clean
 
 
@@ -363,52 +466,173 @@ def _append_math(paragraph, text: str) -> None:
     omath_para = OxmlElement("m:oMathPara")
     omath_para_pr = OxmlElement("m:oMathParaPr")
     jc = OxmlElement("m:jc")
-    jc.set(qn("m:val"), "right")
+    jc.set(qn("m:val"), "center")
     omath_para_pr.append(jc)
     omath_para.append(omath_para_pr)
     oMath = OxmlElement("m:oMath")
-
-    run = OxmlElement("m:r")
-    text_el = OxmlElement("m:t")
-    text_el.text = text
-    run.append(text_el)
-    oMath.append(run)
+    for node in _build_math_nodes(text):
+        oMath.append(node)
     omath_para.append(oMath)
     paragraph._p.append(omath_para)
 
 
+def _build_math_nodes(text: str) -> list[OxmlElement]:
+    nodes: list[OxmlElement] = []
+    i = 0
+    while i < len(text):
+        base_text, i = _read_math_atom(text, i)
+        if not base_text:
+            break
+        sub_text = None
+        sup_text = None
+        while i < len(text) and text[i] in {"_", "^"}:
+            marker = text[i]
+            script_text, next_i = _read_math_script(text, i + 1)
+            if marker == "_":
+                sub_text = script_text
+            else:
+                sup_text = script_text
+            i = next_i
+
+        if sub_text is None and sup_text is None:
+            nodes.append(_math_run(base_text))
+        elif sub_text is not None and sup_text is not None:
+            node = OxmlElement("m:sSubSup")
+            e = OxmlElement("m:e")
+            e.append(_math_run(base_text))
+            node.append(e)
+            sub = OxmlElement("m:sub")
+            sub.append(_math_run(sub_text))
+            node.append(sub)
+            sup = OxmlElement("m:sup")
+            sup.append(_math_run(sup_text))
+            node.append(sup)
+            nodes.append(node)
+        elif sub_text is not None:
+            node = OxmlElement("m:sSub")
+            e = OxmlElement("m:e")
+            e.append(_math_run(base_text))
+            node.append(e)
+            sub = OxmlElement("m:sub")
+            sub.append(_math_run(sub_text))
+            node.append(sub)
+            nodes.append(node)
+        else:
+            node = OxmlElement("m:sSup")
+            e = OxmlElement("m:e")
+            e.append(_math_run(base_text))
+            node.append(e)
+            sup = OxmlElement("m:sup")
+            sup.append(_math_run(sup_text or ""))
+            node.append(sup)
+            nodes.append(node)
+    return nodes
+
+
+def _read_math_atom(text: str, start: int) -> tuple[str, int]:
+    if start >= len(text):
+        return "", start
+    if text[start] == "{":
+        end = text.find("}", start + 1)
+        if end == -1:
+            return text[start + 1 :], len(text)
+        return text[start + 1 : end], end + 1
+    return text[start], start + 1
+
+
+def _read_math_script(text: str, start: int) -> tuple[str, int]:
+    if start >= len(text):
+        return "", start
+    if text[start] == "{":
+        end = text.find("}", start + 1)
+        if end == -1:
+            return text[start + 1 :], len(text)
+        return text[start + 1 : end], end + 1
+    return text[start], start + 1
+
+
+def _math_run(text: str) -> OxmlElement:
+    run = OxmlElement("m:r")
+    t = OxmlElement("m:t")
+    t.text = text
+    run.append(t)
+    return run
+
+
 def _render_equation_terms(docx: DocxDocument, terms: list[str]) -> None:
-    tab_pos = Cm(3).twips  # align dash/definition after symbol
     for idx, term in enumerate(terms):
         symbol, description = _split_term(term)
         description = description.strip()
         if description and not description.endswith(";"):
             description += ";"
+
         paragraph = docx.add_paragraph()
         paragraph.paragraph_format.first_line_indent = Cm(0)
         paragraph.paragraph_format.left_indent = Cm(0)
-        paragraph.paragraph_format.line_spacing = Pt(gost_format.LINE_SPACING_PT)
         paragraph.paragraph_format.space_before = Pt(0)
         paragraph.paragraph_format.space_after = Pt(0)
-        paragraph.paragraph_format.tab_stops.add_tab_stop(tab_pos, WD_TAB_ALIGNMENT.LEFT)
-
-        if idx == 0:
-            run_where = paragraph.add_run("где ")
-            gost_format.set_run_font(run_where)
-        run_sym = paragraph.add_run(symbol)
-        gost_format.set_run_font(run_sym)
-        paragraph.add_run("\t")
-        run_desc = paragraph.add_run(f"– {description}")
-        gost_format.set_run_font(run_desc)
+        paragraph.paragraph_format.line_spacing = Pt(gost_format.LINE_SPACING_PT)
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        prefix_text = "где " if idx == 0 else "       "
+        prefix_run = paragraph.add_run(prefix_text)
+        gost_format.set_run_font(prefix_run)
+        _append_symbol_with_scripts(paragraph, symbol)
+        suffix_run = paragraph.add_run(f" –  {description}")
+        gost_format.set_run_font(suffix_run)
 
 
 def _split_term(term: str) -> tuple[str, str]:
     parts = term.split("—", 1)
     if len(parts) == 1:
+        parts = term.split("–", 1)
+    if len(parts) == 1:
         parts = term.split("-", 1)
     if len(parts) == 2:
-        return parts[0].strip(), parts[1].strip()
-    return term.strip(), ""
+        symbol = _normalize_term_symbol(parts[0].strip())
+        return symbol, parts[1].strip()
+    return _normalize_term_symbol(term.strip()), ""
+
+
+def _normalize_term_symbol(symbol: str) -> str:
+    sym = symbol.strip()
+    if sym.startswith("$") and sym.endswith("$") and len(sym) >= 2:
+        sym = sym[1:-1].strip()
+    return sym
+
+
+def _append_symbol_with_scripts(paragraph, symbol: str) -> None:
+    text = symbol.strip()
+    for latex, uni in LATEX_TO_UNICODE.items():
+        text = text.replace(latex, uni)
+
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if ch in {"_", "^"} and i + 1 < len(text):
+            is_sub = ch == "_"
+            i += 1
+            if i < len(text) and text[i] == "{":
+                end = text.find("}", i + 1)
+                if end == -1:
+                    token = text[i + 1 :]
+                    i = len(text)
+                else:
+                    token = text[i + 1 : end]
+                    i = end + 1
+            else:
+                token = text[i]
+                i += 1
+            run = paragraph.add_run(token)
+            gost_format.set_run_font(run)
+            run.font.subscript = is_sub
+            run.font.superscript = not is_sub
+            continue
+
+        start = i
+        while i < len(text) and text[i] not in {"_", "^"}:
+            i += 1
+        run = paragraph.add_run(text[start:i])
+        gost_format.set_run_font(run)
 
 
 def _clear_table_borders(table) -> None:

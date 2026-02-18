@@ -55,6 +55,25 @@ def _parse_blocks(tokens, index: int, stop_types: set[str]) -> tuple[list, int]:
             i += 3
         elif tok.type == "paragraph_open":
             inline = tokens[i + 1]
+            mixed_equation = _extract_equation_from_paragraph(inline.content or "")
+            if mixed_equation is not None:
+                prefix_text, latex, terms, suffix_text = mixed_equation
+                if prefix_text:
+                    blocks.append(Paragraph(inline=[InlineText(prefix_text)]))
+                blocks.append(EquationBlock(latex=latex, display=True, number=None, terms=terms or None))
+                if suffix_text:
+                    blocks.append(Paragraph(inline=[InlineText(suffix_text)]))
+                i += 3
+                continue
+            display_latex = _extract_display_math_inline(inline.content or "")
+            if display_latex is not None:
+                terms = None
+                consumed = 0
+                if i + 3 < len(tokens):
+                    terms, consumed = _collect_term_paragraphs(tokens, i + 3)
+                blocks.append(EquationBlock(latex=display_latex, display=True, number=None, terms=terms))
+                i += 3 + consumed
+                continue
             inline_elements = _parse_inline(inline.children or [])
             if len(inline_elements) == 1 and isinstance(inline_elements[0], _InlineImage):
                 image = inline_elements[0]
@@ -171,7 +190,7 @@ def _parse_inline(children: Iterable) -> List[InlineElement | _InlineImage]:
         elif tok.type == "code_inline":
             result.append(InlineText(tok.content, bold=bold, italic=italic, code=True))
             i += 1
-        elif tok.type == "math_inline":
+        elif tok.type in {"math_inline", "math_single"}:
             result.append(InlineEquation(tok.content))
             i += 1
         elif tok.type == "link_open":
@@ -218,6 +237,8 @@ def _inline_lines(children: Iterable) -> list[str]:
     for child in children:
         if child.type == "text":
             lines[-1] += child.content
+        elif child.type in {"math_inline", "math_single"}:
+            lines[-1] += f"${child.content}$"
         elif child.type == "code_inline":
             lines[-1] += child.content
         elif child.type in {"softbreak", "hardbreak"}:
@@ -226,11 +247,13 @@ def _inline_lines(children: Iterable) -> list[str]:
 
 
 def _looks_like_term(line: str) -> bool:
-    return "-" in line or "—" in line
+    return "-" in line or "—" in line or "–" in line
 
 
 def _strip_where_prefix(line: str) -> str:
     stripped = line.strip()
+    if stripped.lower() == "где" or stripped.lower() == "where":
+        return ""
     if stripped.lower().startswith("где "):
         return stripped[4:].strip()
     if stripped.lower().startswith("where "):
@@ -242,20 +265,75 @@ def _collect_term_paragraphs(tokens, index: int) -> tuple[list[str] | None, int]
     terms: list[str] = []
     i = index
     consumed = 0
+    saw_where = False
     while i + 2 < len(tokens) and tokens[i].type == "paragraph_open":
         inline = tokens[i + 1]
         if inline.type != "inline":
             break
         lines = _inline_lines(inline.children or [])
-        if not lines or not all(_looks_like_term(line) or line.lower().startswith("где ") for line in lines):
+        if not lines:
             break
+        line_is_terms = all(_looks_like_term(line) for line in lines)
+        line_is_where = len(lines) == 1 and lines[0].strip().lower() in {"где", "where"}
+        line_is_where_with_term = all(line.lower().startswith("где ") or line.lower().startswith("where ") for line in lines)
+        if not (line_is_terms or line_is_where or line_is_where_with_term):
+            break
+        if line_is_where or line_is_where_with_term:
+            saw_where = True
         for line in lines:
             stripped = _strip_where_prefix(line)
             if stripped:
                 terms.append(stripped)
         i += 3
         consumed += 3
+    if not terms and not saw_where:
+        return None, 0
     return (terms if terms else None), consumed
+
+
+def _extract_display_math_inline(text: str) -> str | None:
+    stripped = text.strip()
+    if not (stripped.startswith("$$") and stripped.endswith("$$")):
+        return None
+    inner = stripped[2:-2].strip()
+    return inner or None
+
+
+def _extract_equation_from_paragraph(text: str) -> tuple[str, str, list[str], str] | None:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return None
+    formula_idx = None
+    formula_text = ""
+    for idx, line in enumerate(lines):
+        if "$$" in line:
+            first = line.find("$$")
+            second = line.find("$$", first + 2)
+            if second != -1:
+                formula_idx = idx
+                formula_text = line[first + 2 : second].strip()
+                break
+    if formula_idx is None or not formula_text:
+        return None
+
+    prefix_text = " ".join(lines[:formula_idx]).strip()
+    trailing_lines = lines[formula_idx + 1 :]
+    terms: list[str] = []
+    suffix_lines: list[str] = []
+    for line in trailing_lines:
+        lowered = line.lower()
+        if lowered == "где" or lowered == "where":
+            continue
+        if lowered.startswith("где "):
+            line = line[4:].strip()
+        elif lowered.startswith("where "):
+            line = line[6:].strip()
+        if _looks_like_term(line):
+            terms.append(line)
+        else:
+            suffix_lines.append(line)
+    suffix_text = " ".join(suffix_lines).strip()
+    return prefix_text, formula_text, terms, suffix_text
 
 
 def _extract_heading_parts(text: str) -> tuple[str, str | None, bool]:
