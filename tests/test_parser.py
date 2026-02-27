@@ -78,3 +78,27 @@ def test_parse_yaml_structure():
     assert isinstance(document.blocks[6], EquationBlock)
     assert document.blocks[6].terms and len(document.blocks[6].terms) == 3
     assert isinstance(document.blocks[7], TableBlock)
+
+
+def test_parse_mixed_formula_paragraph_with_terms():
+    md_text = textwrap.dedent(
+        """
+        Площадь печатной платы рассчитывается по формуле (3.1):
+        $$S_{ПП} = S_В + K_{ДЕЗ} \\sum_n^{i=1} S_i$$
+        где $S_{ПП}$ – площадь вспомогательных участков;
+        $K_{ДЕЗ}$ – коэффициент дезинтеграции;
+        $n$ – количество элементов;
+        $S_i$ – число сформированных групп.
+        """
+    )
+    document = markdown_parser.parse_markdown(md_text)
+    assert len(document.blocks) == 2
+    assert isinstance(document.blocks[0], Paragraph)
+    assert isinstance(document.blocks[1], EquationBlock)
+    assert document.blocks[1].latex == "S_{ПП} = S_В + K_{ДЕЗ} \\sum_n^{i=1} S_i"
+    assert document.blocks[1].terms == [
+        "$S_{ПП}$ – площадь вспомогательных участков;",
+        "$K_{ДЕЗ}$ – коэффициент дезинтеграции;",
+        "$n$ – количество элементов;",
+        "$S_i$ – число сформированных групп.",
+    ]
