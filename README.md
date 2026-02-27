@@ -26,7 +26,35 @@ RenderStudy report.md -o report.docx
 RenderStudy report.md --verbose
 # или YAML
 RenderStudy data.yaml -o data.docx
+# или переоформление существующего DOCX
+RenderStudy draft.docx -o draft_formatted.docx
 ```
+
+## Telegram бот
+
+Бот принимает:
+- `.md`
+- `.docx`
+- обычный текст в сообщении
+
+И отправляет обратно готовый `.docx` с форматированием.
+
+Запуск:
+```bash
+export TELEGRAM_BOT_TOKEN="ваш_токен"
+RenderStudyBot
+```
+
+Или:
+```bash
+RenderStudyBot --token "ваш_токен"
+```
+
+Для режима бота с входом `текст` и `.md` нужен титульник:
+```bash
+export RENDERSTUDY_TITLE_TEMPLATE="/абсолютный/путь/к/титульник.docx"
+```
+Если переменная не задана, бот пытается использовать `examples/титульник.docx`.
 
 ## Пример
 
