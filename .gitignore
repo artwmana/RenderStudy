@@ -11,3 +11,4 @@ dist/
 
 # artifacts
 *.pdf
+.DS_Store

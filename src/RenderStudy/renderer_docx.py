@@ -135,10 +135,15 @@ SUPERSCRIPT_MAP = {
 }
 
 
-def render_document(doc: Document, output_path: str | Path, asset_root: Path | None = None) -> None:
+def render_document(
+    doc: Document,
+    output_path: str | Path,
+    asset_root: Path | None = None,
+    template_path: Path | None = None,
+) -> None:
     output_path = Path(output_path)
     state = RenderState(asset_root=asset_root)
-    docx = DocxDocument()
+    docx = DocxDocument(str(template_path)) if template_path else DocxDocument()
     gost_format.apply_page_layout(docx)
 
     for block in doc.blocks:
@@ -169,13 +174,20 @@ def _dispatch_block(docx: DocxDocument, block: Block, state: RenderState) -> Non
         docx.add_page_break()
 
 
+def _add_blank_line(docx: DocxDocument) -> None:
+    """Insert a visible blank line that keeps required font/size in Word."""
+    paragraph = docx.add_paragraph()
+    run = paragraph.add_run(" ")
+    gost_format.set_run_font(run)
+    gost_format.apply_body_paragraph_format(paragraph)
+    paragraph.paragraph_format.first_line_indent = Cm(0)
+
+
 def _render_heading(docx: DocxDocument, heading: Heading, state: RenderState) -> None:
     if heading.level == 1 and state.first_heading_rendered:
         docx.add_page_break()
     if docx.paragraphs and docx.paragraphs[-1].text.strip():
-        spacer_before = docx.add_paragraph("")
-        gost_format.apply_body_paragraph_format(spacer_before)
-        spacer_before.paragraph_format.first_line_indent = Cm(0)
+        _add_blank_line(docx)
     number = _compute_heading_number(heading, state)
     heading_text = heading.text.upper() if heading.level == 1 else heading.text
     text = f"{number} {heading_text}" if heading.numbered and number else heading_text
@@ -189,9 +201,7 @@ def _render_heading(docx: DocxDocument, heading: Heading, state: RenderState) ->
     gost_format.apply_heading_format(paragraph, centered=centered, with_indent=with_indent)
 
     # Blank line after heading
-    spacer = docx.add_paragraph("")
-    gost_format.apply_body_paragraph_format(spacer)
-    spacer.paragraph_format.first_line_indent = Cm(0)
+    _add_blank_line(docx)
 
     state.first_heading_rendered = True
 
@@ -262,7 +272,7 @@ def _render_list(docx: DocxDocument, block: ListBlock, state: RenderState) -> No
         paragraph.paragraph_format.first_line_indent = Cm(gost_format.FIRST_LINE_INDENT_CM)
         paragraph.paragraph_format.left_indent = Cm(0)
         paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-        paragraph.paragraph_format.line_spacing = Pt(gost_format.LINE_SPACING_PT)
+        gost_format.apply_single_line_spacing(paragraph)
         paragraph.paragraph_format.space_after = Pt(0)
 
         for sub_block in remaining_blocks:
@@ -274,17 +284,15 @@ def _render_code_block(docx: DocxDocument, block: CodeBlock) -> None:
     run = paragraph.add_run(block.code)
     gost_format.set_run_font(run, code=True)
     paragraph.paragraph_format.first_line_indent = Cm(0)
-    paragraph.paragraph_format.line_spacing = Pt(gost_format.LINE_SPACING_PT)
+    gost_format.apply_single_line_spacing(paragraph)
     paragraph.paragraph_format.space_before = Pt(0)
-    paragraph.paragraph_format.space_after = Pt(gost_format.LINE_SPACING_PT)
+    paragraph.paragraph_format.space_after = Pt(0)
     paragraph.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
 
 def _render_equation_block(docx: DocxDocument, block: EquationBlock, state: RenderState) -> None:
     # Blank line before
-    spacer = docx.add_paragraph("")
-    gost_format.apply_body_paragraph_format(spacer)
-    spacer.paragraph_format.first_line_indent = Cm(0)
+    _add_blank_line(docx)
 
     section = state.current_section or 1
     state.equation_counters[section] += 1
@@ -310,14 +318,14 @@ def _render_equation_block(docx: DocxDocument, block: EquationBlock, state: Rend
     cell_formula = table.cell(0, 1)
     p_formula = cell_formula.paragraphs[0]
     p_formula.paragraph_format.first_line_indent = Cm(0)
-    p_formula.paragraph_format.line_spacing = Pt(gost_format.LINE_SPACING_PT)
+    gost_format.apply_single_line_spacing(p_formula)
     p_formula.alignment = WD_ALIGN_PARAGRAPH.CENTER
     _append_math(p_formula, _latex_to_plain_text(block.latex, convert_scripts=False))
 
     cell_num = table.cell(0, 2)
     p_num = cell_num.paragraphs[0]
     p_num.paragraph_format.first_line_indent = Cm(0)
-    p_num.paragraph_format.line_spacing = Pt(gost_format.LINE_SPACING_PT)
+    gost_format.apply_single_line_spacing(p_num)
     p_num.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     run_number = p_num.add_run(f"({number})")
     gost_format.set_run_font(run_number)
@@ -326,9 +334,7 @@ def _render_equation_block(docx: DocxDocument, block: EquationBlock, state: Rend
     if block.terms:
         _render_equation_terms(docx, block.terms)
     # Blank line after
-    spacer_after = docx.add_paragraph("")
-    gost_format.apply_body_paragraph_format(spacer_after)
-    spacer_after.paragraph_format.first_line_indent = Cm(0)
+    _add_blank_line(docx)
 
 
 def _render_horizontal_rule(docx: DocxDocument) -> None:
@@ -337,13 +343,11 @@ def _render_horizontal_rule(docx: DocxDocument) -> None:
     gost_format.set_run_font(run)
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
     paragraph.paragraph_format.first_line_indent = Cm(0)
-    paragraph.paragraph_format.line_spacing = Pt(gost_format.LINE_SPACING_PT)
+    gost_format.apply_single_line_spacing(paragraph)
 
 
 def _render_image_block(docx: DocxDocument, block: ImageBlock, state: RenderState) -> None:
-    spacer_before = docx.add_paragraph("")
-    gost_format.apply_body_paragraph_format(spacer_before)
-    spacer_before.paragraph_format.first_line_indent = Cm(0)
+    _add_blank_line(docx)
 
     image_path = Path(block.src)
     if state.asset_root:
@@ -367,9 +371,7 @@ def _render_image_block(docx: DocxDocument, block: ImageBlock, state: RenderStat
     caption_paragraph = docx.add_paragraph(f"Рисунок {caption_number} – {caption_text}")
     gost_format.apply_caption_format(caption_paragraph, centered=True)
 
-    spacer_after = docx.add_paragraph("")
-    gost_format.apply_body_paragraph_format(spacer_after)
-    spacer_after.paragraph_format.first_line_indent = Cm(0)
+    _add_blank_line(docx)
 
 
 def _render_table_block(docx: DocxDocument, block: TableBlock, state: RenderState) -> None:
@@ -398,13 +400,11 @@ def _render_table_block(docx: DocxDocument, block: TableBlock, state: RenderStat
         for cell in row.cells:
             for paragraph in cell.paragraphs:
                 paragraph.paragraph_format.first_line_indent = Cm(0)
-                paragraph.paragraph_format.line_spacing = Pt(gost_format.LINE_SPACING_PT)
+                gost_format.apply_single_line_spacing(paragraph)
                 for run in paragraph.runs:
                     gost_format.set_run_font(run)
 
-    spacer_after = docx.add_paragraph("")
-    gost_format.apply_body_paragraph_format(spacer_after)
-    spacer_after.paragraph_format.first_line_indent = Cm(0)
+    _add_blank_line(docx)
 
 
 def _latex_to_plain_text(expr: str, convert_scripts: bool = True) -> str:
@@ -571,7 +571,7 @@ def _render_equation_terms(docx: DocxDocument, terms: list[str]) -> None:
         paragraph.paragraph_format.left_indent = Cm(0)
         paragraph.paragraph_format.space_before = Pt(0)
         paragraph.paragraph_format.space_after = Pt(0)
-        paragraph.paragraph_format.line_spacing = Pt(gost_format.LINE_SPACING_PT)
+        gost_format.apply_single_line_spacing(paragraph)
         paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
         prefix_text = "где " if idx == 0 else "       "
         prefix_run = paragraph.add_run(prefix_text)

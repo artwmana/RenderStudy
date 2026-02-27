@@ -13,10 +13,12 @@ dependencies = [
     "markdown-it-py>=3.0.0",
     "mdit-py-plugins>=0.4.0",
     "PyYAML>=6.0",
+    "python-telegram-bot>=21.0,<22.0",
 ]
 
 [project.scripts]
 RenderStudy = "RenderStudy.cli:main"
+RenderStudyBot = "RenderStudy.telegram_bot:main"
 
 [project.optional-dependencies]
 test = ["pytest>=7.4"]

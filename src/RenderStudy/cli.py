@@ -4,8 +4,8 @@ import argparse
 import logging
 from pathlib import Path
 
-from . import markdown_parser, renderer_docx, yaml_parser
-from .utils import configure_logging, read_markdown, resolve_output_path
+from .conversion_service import convert_input_file
+from .utils import configure_logging, resolve_output_path
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -13,7 +13,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="RenderStudy",
         description="Convert Markdown into DOCX formatted for BSUIR/STP 01-2024.",
     )
-    parser.add_argument("input", type=str, help="Path to Markdown file")
+    parser.add_argument("input", type=str, help="Path to input file (.md/.yaml/.docx)")
     parser.add_argument("-o", "--output", type=str, help="Output DOCX path")
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
     return parser
@@ -27,20 +27,8 @@ def main(argv: list[str] | None = None) -> None:
         raise FileNotFoundError(f"Input file not found: {input_path}")
     output_path = resolve_output_path(input_path, args.output)
 
-    logging.info("Reading %s", input_path)
-    markdown_text = read_markdown(input_path)
-    logging.debug("Markdown length: %d chars", len(markdown_text))
-
-    if input_path.suffix.lower() in {".yaml", ".yml"}:
-        logging.info("Parsing YAML structured document...")
-        document = yaml_parser.parse_yaml_document(markdown_text)
-    else:
-        logging.info("Parsing markdown...")
-        document = markdown_parser.parse_markdown(markdown_text)
-
     logging.info("Rendering DOCX to %s", output_path)
-    renderer_docx.render_document(document, output_path=output_path, asset_root=input_path.parent)
-
+    convert_input_file(input_path=input_path, output_path=output_path, use_title_template=True)
     logging.info("Done. Saved to %s", output_path)
 
 

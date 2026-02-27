@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.shared import Cm, Pt
 
 A4_WIDTH_MM = 210
@@ -8,7 +8,7 @@ A4_HEIGHT_MM = 297
 
 FONT_NAME = "Times New Roman"
 FONT_SIZE_PT = 14
-LINE_SPACING_PT = 18
+LINE_SPACING = 1.0
 FIRST_LINE_INDENT_CM = 1.25
 
 MARGIN_LEFT_CM = 3.0
@@ -29,10 +29,15 @@ def apply_page_layout(doc) -> None:
 
 
 def _set_run_font(run, bold: bool = False, italic: bool = False, code: bool = False) -> None:
-    run.font.name = FONT_NAME if not code else "Courier New"
+    run.font.name = FONT_NAME
     run.font.size = Pt(FONT_SIZE_PT)
     run.bold = bold
     run.italic = italic
+
+
+def apply_single_line_spacing(paragraph) -> None:
+    paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+    paragraph.paragraph_format.line_spacing = LINE_SPACING
 
 
 def apply_body_paragraph_format(paragraph) -> None:
@@ -40,7 +45,7 @@ def apply_body_paragraph_format(paragraph) -> None:
     paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
     paragraph.paragraph_format.space_after = Pt(0)
     paragraph.paragraph_format.space_before = Pt(0)
-    paragraph.paragraph_format.line_spacing = Pt(LINE_SPACING_PT)
+    apply_single_line_spacing(paragraph)
     paragraph.paragraph_format.first_line_indent = Cm(FIRST_LINE_INDENT_CM)
 
 
@@ -48,15 +53,20 @@ def apply_heading_format(paragraph, centered: bool = False, with_indent: bool = 
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER if centered else WD_ALIGN_PARAGRAPH.LEFT
     paragraph.paragraph_format.space_after = Pt(0)
     paragraph.paragraph_format.space_before = Pt(0)
+    apply_single_line_spacing(paragraph)
+    paragraph.paragraph_format.page_break_before = False
+    paragraph.paragraph_format.left_indent = Cm(0)
+    paragraph.paragraph_format.right_indent = Cm(0)
     paragraph.paragraph_format.first_line_indent = Cm(FIRST_LINE_INDENT_CM if with_indent else 0)
     for run in paragraph.runs:
         _set_run_font(run, bold=True)
 
 
-def apply_caption_format(paragraph, centered: bool = False, space_after: float | None = LINE_SPACING_PT) -> None:
+def apply_caption_format(paragraph, centered: bool = False, space_after: float | None = 0) -> None:
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER if centered else WD_ALIGN_PARAGRAPH.LEFT
     paragraph.paragraph_format.space_after = Pt(space_after) if space_after is not None else Pt(0)
     paragraph.paragraph_format.space_before = Pt(0)
+    apply_single_line_spacing(paragraph)
     paragraph.paragraph_format.first_line_indent = Cm(0)
     for run in paragraph.runs:
         _set_run_font(run, bold=False)
