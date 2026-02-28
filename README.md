@@ -30,6 +30,11 @@ RenderStudy data.yaml -o data.docx
 RenderStudy draft.docx -o draft_formatted.docx
 ```
 
+Для входного `.docx` используется режим:
+- первая страница входного файла отбрасывается,
+- текст после первой страницы извлекается в Markdown,
+- итоговый `.docx` собирается как `титульник из examples/титульник.docx + отрендеренный Markdown`.
+
 ## Telegram бот
 
 Бот принимает:
@@ -55,6 +60,16 @@ RenderStudyBot --token "ваш_токен"
 export RENDERSTUDY_TITLE_TEMPLATE="/абсолютный/путь/к/титульник.docx"
 ```
 Если переменная не задана, бот пытается использовать `examples/титульник.docx`.
+
+Хранилище всех работ бота:
+```bash
+export RENDERSTUDY_BOT_STORAGE="/абсолютный/путь/к/папке"
+```
+Если переменная не задана, используется `./renderstudy_bot_storage` в текущей директории запуска.
+Внутри автоматически создаются папки:
+- `docx/`
+- `md/`
+- `text/`
 
 ## Пример
 

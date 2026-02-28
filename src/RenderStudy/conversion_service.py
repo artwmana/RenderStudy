@@ -18,13 +18,19 @@ def convert_input_file(
     *,
     use_title_template: bool = True,
     title_template_path: Path | None = None,
+    extracted_md_path: str | Path | None = None,
 ) -> None:
     src = Path(input_path)
     out = Path(output_path)
     suffix = src.suffix.lower()
 
     if suffix == ".docx":
-        docx_formatter.reformat_docx(input_path=src, output_path=out)
+        docx_formatter.rebuild_docx_via_markdown(
+            input_path=src,
+            output_path=out,
+            extracted_md_path=extracted_md_path,
+            title_template_path=title_template_path,
+        )
         return
 
     text = src.read_text(encoding="utf-8")

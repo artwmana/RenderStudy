@@ -7,6 +7,7 @@ import re
 from typing import Iterable
 
 from docx import Document as DocxDocument
+from docx.enum.section import WD_SECTION
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
@@ -145,12 +146,33 @@ def render_document(
     state = RenderState(asset_root=asset_root)
     docx = DocxDocument(str(template_path)) if template_path else DocxDocument()
     gost_format.apply_page_layout(docx)
+    if template_path is not None:
+        _start_body_section_with_page_one(docx)
 
     for block in doc.blocks:
         _dispatch_block(docx, block, state)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     docx.save(output_path)
+
+
+def _start_body_section_with_page_one(docx: DocxDocument) -> None:
+    """Start a new section after title page and reset page numbering to 1."""
+    new_section = docx.add_section(WD_SECTION.NEW_PAGE)
+    new_section.left_margin = Cm(gost_format.MARGIN_LEFT_CM)
+    new_section.right_margin = Cm(gost_format.MARGIN_RIGHT_CM)
+    new_section.top_margin = Cm(gost_format.MARGIN_TOP_CM)
+    new_section.bottom_margin = Cm(gost_format.MARGIN_BOTTOM_CM)
+    new_section.page_height = Cm(gost_format.A4_HEIGHT_MM / 10)
+    new_section.page_width = Cm(gost_format.A4_WIDTH_MM / 10)
+
+    sect_pr = new_section._sectPr
+    for child in list(sect_pr):
+        if child.tag == qn("w:pgNumType"):
+            sect_pr.remove(child)
+    pg_num_type = OxmlElement("w:pgNumType")
+    pg_num_type.set(qn("w:start"), "1")
+    sect_pr.append(pg_num_type)
 
 
 def _dispatch_block(docx: DocxDocument, block: Block, state: RenderState) -> None:
@@ -266,11 +288,12 @@ def _render_list(docx: DocxDocument, block: ListBlock, state: RenderState) -> No
 
         base_text = " ".join(part.strip() for part in text_parts if part.strip())
         formatted_text = _format_list_text(base_text, is_last=idx == len(block.items), ordered=block.ordered)
-        prefix = f"{idx} " if block.ordered else "– "
+        prefix = f"{idx}. " if block.ordered else "• "
         run = paragraph.add_run(prefix + formatted_text)
         gost_format.set_run_font(run)
-        paragraph.paragraph_format.first_line_indent = Cm(gost_format.FIRST_LINE_INDENT_CM)
+        # Keep the same paragraph level/indent for numbered and bullet-like lists.
         paragraph.paragraph_format.left_indent = Cm(0)
+        paragraph.paragraph_format.first_line_indent = Cm(gost_format.FIRST_LINE_INDENT_CM)
         paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         gost_format.apply_single_line_spacing(paragraph)
         paragraph.paragraph_format.space_after = Pt(0)
@@ -459,6 +482,8 @@ def _format_list_text(text: str, is_last: bool, ordered: bool) -> str:
         clean = clean[:-1]
     clean += "." if is_last else ";"
     return clean
+
+
 
 
 def _append_math(paragraph, text: str) -> None:

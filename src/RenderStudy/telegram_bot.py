@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import logging
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -25,6 +27,45 @@ def _resolve_title_template() -> Path | None:
     if fallback.exists():
         return fallback
     return None
+
+
+def _storage_root() -> Path:
+    env_path = os.environ.get("RENDERSTUDY_BOT_STORAGE")
+    if env_path:
+        root = Path(env_path).expanduser()
+    else:
+        root = Path.cwd() / "renderstudy_bot_storage"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _storage_dir(kind: str) -> Path:
+    root = _storage_root()
+    target = root / kind
+    target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
+def _work_prefix(update: Update) -> str:
+    msg = update.message
+    chat_id = msg.chat_id if msg else 0
+    msg_id = msg.message_id if msg else 0
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"{stamp}_{chat_id}_{msg_id}"
+
+
+def _persist_work(kind: str, src_path: Path, out_path: Path, prefix: str) -> None:
+    storage = _storage_dir(kind)
+    src_target = storage / f"{prefix}_input{src_path.suffix.lower()}"
+    out_target = storage / f"{prefix}_output.docx"
+    shutil.copy2(src_path, src_target)
+    shutil.copy2(out_path, out_target)
+
+
+def _persist_markdown_dump(md_path: Path, prefix: str) -> None:
+    storage = _storage_dir("md")
+    target = storage / f"{prefix}_extracted.md"
+    shutil.copy2(md_path, target)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -61,8 +102,12 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     with tempfile.TemporaryDirectory(prefix="renderstudy_bot_") as tmp:
+        prefix = _work_prefix(update)
+        text_path = Path(tmp) / "message_input.txt"
         out_path = Path(tmp) / "message_formatted.docx"
+        text_path.write_text(text, encoding="utf-8")
         convert_text_to_docx(text, out_path, title_template_path=template)
+        _persist_work("text", text_path, out_path, prefix)
         with out_path.open("rb") as fp:
             await update.message.reply_document(document=fp, filename="formatted.docx")
 
@@ -79,26 +124,33 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
 
     with tempfile.TemporaryDirectory(prefix="renderstudy_bot_") as tmp:
+        prefix = _work_prefix(update)
         in_path = Path(tmp) / name
         out_name = f"{Path(name).stem}_formatted.docx"
         out_path = Path(tmp) / out_name
+        extracted_md_path = Path(tmp) / "extracted_body.md"
 
         tg_file = await doc.get_file()
         await tg_file.download_to_drive(custom_path=str(in_path))
 
         template = _resolve_title_template()
-        if suffix == ".md" and template is None:
+        if suffix in {".md", ".docx"} and template is None:
             await update.message.reply_text(
-                "Для .md нужен титульник. Укажите путь в RENDERSTUDY_TITLE_TEMPLATE."
+                "Нужен титульник. Укажите путь в RENDERSTUDY_TITLE_TEMPLATE."
             )
             return
-        use_template = suffix == ".md" and template is not None
+        template_for_convert = template if suffix in {".md", ".docx"} else None
         convert_input_file(
             in_path,
             out_path,
             use_title_template=False,
-            title_template_path=template if use_template else None,
+            title_template_path=template_for_convert,
+            extracted_md_path=extracted_md_path if suffix == ".docx" else None,
         )
+        kind = "md" if suffix == ".md" else "docx" if suffix == ".docx" else "text"
+        _persist_work(kind, in_path, out_path, prefix)
+        if suffix == ".docx" and extracted_md_path.exists():
+            _persist_markdown_dump(extracted_md_path, prefix)
         with out_path.open("rb") as fp:
             await update.message.reply_document(document=fp, filename=out_name)
 
