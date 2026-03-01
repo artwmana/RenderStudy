@@ -71,6 +71,59 @@ export RENDERSTUDY_BOT_STORAGE="/абсолютный/путь/к/папке"
 - `md/`
 - `text/`
 
+## HTTP API
+
+Запуск:
+```bash
+RenderStudyAPI --host 0.0.0.0 --port 8000
+```
+
+### Endpoint
+
+- `POST /format`
+- `Content-Type: multipart/form-data`
+- Ответ: `Content-Type: multipart/form-data` (поле `file` с `.docx`)
+
+### Request contract (multipart/form-data)
+
+Передайте **либо** файл, **либо** текст:
+
+- `file` (optional): файл с расширением `.md | .txt | .docx`
+- `text` (optional): обычный текст для форматирования
+- `filename` (optional): имя для результата при использовании `text`
+
+Ограничение: одновременно `file` и `text` передавать нельзя.
+
+Валидация:
+- для неподдерживаемых типов возвращается `415 Unsupported Media Type`;
+- проверяется сигнатура файла;
+- для `.docx` дополнительно выполняется базовая проверка ZIP-bomb
+  (число entry, суммарный распакованный размер, коэффициент сжатия).
+
+### Response contract (multipart/form-data)
+
+Один part:
+- `name="file"`
+- `filename="<input>_formatted.docx"`
+- `Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document`
+
+### Примеры
+
+Файл:
+```bash
+curl -X POST "http://localhost:8000/format" \
+  -F "file=@examples/sample_report.md" \
+  --output response.multipart
+```
+
+Текст:
+```bash
+curl -X POST "http://localhost:8000/format" \
+  -F "text=# ВВЕДЕНИЕ\n\nТекст..." \
+  -F "filename=my_text" \
+  --output response.multipart
+```
+
 ## Пример
 
 В каталоге `examples/` лежит `sample_report.md`, демонстрирующий заголовки, списки, формулы, код, рисунок и таблицу. Запустите:
