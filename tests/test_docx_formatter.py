@@ -1,3 +1,4 @@
+import base64
 from pathlib import Path
 
 from docx import Document as DocxDocument
@@ -238,7 +239,9 @@ def test_rebuild_docx_via_markdown_code_line_not_joined(tmp_path: Path):
     md_text = md_dump.read_text(encoding="utf-8")
 
     assert "Описание алгоритма. return radius * radius;" not in md_text
-    assert "Описание алгоритма.\n\n```\nreturn radius * radius;\n```" in md_text
+    assert "Описание алгоритма." in md_text
+    assert "return radius * radius;" in md_text
+    assert "~~~~\nreturn radius * radius;\n~~~~" in md_text
 
 
 def test_rebuild_docx_via_markdown_keeps_numbered_lists(tmp_path: Path):
@@ -321,3 +324,108 @@ def test_rebuild_docx_via_markdown_colon_semicolon_final_dot_stays_same_list(tmp
     assert "- первый элемент;" in md_text
     assert "- второй элемент." in md_text
     assert "1. второй элемент." not in md_text
+
+
+def test_rebuild_docx_via_markdown_keeps_images(tmp_path: Path):
+    src = tmp_path / "in_image.docx"
+    out = tmp_path / "out_image.docx"
+    md_dump = tmp_path / "image.md"
+    template = tmp_path / "title_template.docx"
+    image_path = tmp_path / "pixel.png"
+
+    tiny_png = (
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wn9fSkAAAAASUVORK5CYII="
+    )
+    image_path.write_bytes(base64.b64decode(tiny_png))
+
+    tpl = DocxDocument()
+    tpl.add_paragraph("ШАБЛОН")
+    tpl.save(template)
+
+    doc = DocxDocument()
+    doc.add_paragraph("СТАРЫЙ ТИТУЛ")
+    doc.add_page_break()
+    doc.add_paragraph("Раздел с иллюстрацией")
+    doc.add_picture(str(image_path))
+    doc.add_paragraph("Рисунок 1.1 – Тестовая подпись")
+    doc.save(src)
+
+    rebuild_docx_via_markdown(src, out, extracted_md_path=md_dump, title_template_path=template)
+
+    md_text = md_dump.read_text(encoding="utf-8")
+    assert '![Иллюстрация](images/img_0001.png "Тестовая подпись")' in md_text
+    assert "Рисунок 1.1 – Тестовая подпись" not in md_text
+
+    rebuilt = DocxDocument(out)
+    assert len(rebuilt.inline_shapes) >= 1
+    assert any("Тестовая подпись" in p.text for p in rebuilt.paragraphs)
+
+
+def test_rebuild_docx_via_markdown_keeps_images_from_table_cells(tmp_path: Path):
+    src = tmp_path / "in_image_table.docx"
+    out = tmp_path / "out_image_table.docx"
+    md_dump = tmp_path / "image_table.md"
+    template = tmp_path / "title_template.docx"
+    image_path = tmp_path / "pixel_table.png"
+
+    tiny_png = (
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wn9fSkAAAAASUVORK5CYII="
+    )
+    image_path.write_bytes(base64.b64decode(tiny_png))
+
+    tpl = DocxDocument()
+    tpl.add_paragraph("ШАБЛОН")
+    tpl.save(template)
+
+    doc = DocxDocument()
+    doc.add_paragraph("СТАРЫЙ ТИТУЛ")
+    doc.add_page_break()
+    table = doc.add_table(rows=1, cols=1)
+    cell = table.cell(0, 0)
+    cell_p = cell.paragraphs[0]
+    cell_p.add_run().add_picture(str(image_path))
+    doc.add_paragraph("Рисунок 1.3 – Подпись из таблицы")
+    doc.save(src)
+
+    rebuild_docx_via_markdown(src, out, extracted_md_path=md_dump, title_template_path=template)
+
+    md_text = md_dump.read_text(encoding="utf-8")
+    assert '![Иллюстрация](images/img_0001.png "Подпись из таблицы")' in md_text
+
+    rebuilt = DocxDocument(out)
+    assert len(rebuilt.inline_shapes) >= 1
+
+
+def test_rebuild_docx_via_markdown_code_fence_literal_does_not_swallow_images(tmp_path: Path):
+    src = tmp_path / "in_code_fence_then_image.docx"
+    out = tmp_path / "out_code_fence_then_image.docx"
+    md_dump = tmp_path / "code_fence_then_image.md"
+    template = tmp_path / "title_template.docx"
+    image_path = tmp_path / "pixel_fence.png"
+
+    tiny_png = (
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wn9fSkAAAAASUVORK5CYII="
+    )
+    image_path.write_bytes(base64.b64decode(tiny_png))
+
+    tpl = DocxDocument()
+    tpl.add_paragraph("ШАБЛОН")
+    tpl.save(template)
+
+    doc = DocxDocument()
+    doc.add_paragraph("СТАРЫЙ ТИТУЛ")
+    doc.add_page_break()
+    doc.add_paragraph("```")
+    doc.add_paragraph("return 0;")
+    doc.add_paragraph("```")
+    doc.add_picture(str(image_path))
+    doc.add_paragraph("Рисунок 1.4 – Картинка после fence")
+    doc.save(src)
+
+    rebuild_docx_via_markdown(src, out, extracted_md_path=md_dump, title_template_path=template)
+
+    md_text = md_dump.read_text(encoding="utf-8")
+    assert '![Иллюстрация](images/img_0001.png "Картинка после fence")' in md_text
+
+    rebuilt = DocxDocument(out)
+    assert len(rebuilt.inline_shapes) >= 1

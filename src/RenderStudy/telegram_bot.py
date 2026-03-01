@@ -8,6 +8,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from dotenv import find_dotenv, load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
@@ -160,10 +161,21 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 def main(argv: list[str] | None = None) -> None:
+    # Load env from current working directory and project root so script works
+    # even when started outside of repository root.
+    load_dotenv(find_dotenv(filename=".env", usecwd=True), override=False)
+    project_env = Path(__file__).resolve().parents[2] / ".env"
+    if project_env.exists():
+        load_dotenv(project_env, override=False)
     args = build_parser().parse_args(argv)
     configure_logging(verbose=args.verbose)
 
     token = args.token or os.environ.get("TELEGRAM_BOT_TOKEN")
+    if args.verbose:
+        logging.info(
+            "Token source: %s",
+            "--token" if args.token else ("TELEGRAM_BOT_TOKEN" if token else "missing"),
+        )
     if not token:
         raise RuntimeError("Telegram token is required (--token or TELEGRAM_BOT_TOKEN).")
 

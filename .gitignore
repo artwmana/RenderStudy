@@ -14,3 +14,4 @@ dist/
 .DS_Store
 renderstudy_bot_storage/docx/
 renderstudy_bot_storage/md/
+.env
