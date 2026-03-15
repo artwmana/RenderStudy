@@ -40,7 +40,7 @@ def reformat_docx(input_path: str | Path, output_path: str | Path) -> None:
         _format_paragraph(paragraph)
 
     # Remove visually empty spacer paragraphs in body part.
-    for idx, paragraph in list(enumerate(list(doc.paragraphs))):
+    for idx, paragraph in enumerate(doc.paragraphs):
         if idx < body_start_idx:
             continue
         if _is_removable_blank(paragraph):
