@@ -73,14 +73,18 @@ export RENDERSTUDY_BOT_STORAGE="/абсолютный/путь/к/папке"
 
 ## HTTP API
 
+Для работы API необходимо задать ключ авторизации в переменной окружения `RENDERSTUDY_API_KEY`:
+
 Запуск:
 ```bash
+export RENDERSTUDY_API_KEY="ваш_секретный_ключ"
 RenderStudyAPI --host 0.0.0.0 --port 8000
 ```
 
 ### Endpoint
 
 - `POST /format`
+- Обязательный заголовок: `X-API-Key: ваш_секретный_ключ`
 - `Content-Type: multipart/form-data`
 - Ответ: `Content-Type: multipart/form-data` (поле `file` с `.docx`)
 
@@ -112,6 +116,7 @@ RenderStudyAPI --host 0.0.0.0 --port 8000
 Файл:
 ```bash
 curl -X POST "http://localhost:8000/format" \
+  -H "X-API-Key: ваш_секретный_ключ" \
   -F "file=@examples/sample_report.md" \
   --output response.multipart
 ```
@@ -119,6 +124,7 @@ curl -X POST "http://localhost:8000/format" \
 Текст:
 ```bash
 curl -X POST "http://localhost:8000/format" \
+  -H "X-API-Key: ваш_секретный_ключ" \
   -F "text=# ВВЕДЕНИЕ\n\nТекст..." \
   -F "filename=my_text" \
   --output response.multipart

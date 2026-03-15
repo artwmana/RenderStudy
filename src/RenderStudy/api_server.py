@@ -8,14 +8,16 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
+from fastapi.security import APIKeyHeader
 
 from .conversion_service import convert_input_file, convert_text_to_docx
 
 app = FastAPI(title="RenderStudy API", version="1.0.0")
 
 ALLOWED_EXTENSIONS = {".md", ".txt", ".docx"}
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 DOCX_REQUIRED_ENTRIES = {"[Content_Types].xml", "word/document.xml"}
 MAX_DOCX_UNCOMPRESSED_BYTES = 100 * 1024 * 1024  # 100 MB
 MAX_DOCX_ENTRIES = 5000
@@ -101,11 +103,24 @@ def _validate_docx_bytes(content: bytes) -> None:
                 raise _unsupported("Unsupported Media Type: suspicious compression ratio (zip-bomb check).")
 
 
+def get_api_key(api_key: str | None = Depends(api_key_header)) -> str:
+    expected_api_key = os.environ.get("RENDERSTUDY_API_KEY")
+    if not expected_api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="Server configuration error: RENDERSTUDY_API_KEY is not set.",
+        )
+    if api_key is None or not secrets.compare_digest(api_key, expected_api_key):
+        raise HTTPException(status_code=401, detail="Invalid API Key")
+    return api_key
+
+
 @app.post("/format")
 async def format_endpoint(
     file: UploadFile | None = File(default=None),
     text: str | None = Form(default=None),
     filename: str | None = Form(default=None),
+    api_key: str = Depends(get_api_key),
 ) -> Response:
     if file is None and (text is None or not text.strip()):
         raise HTTPException(status_code=400, detail="Provide either form field 'file' or non-empty 'text'.")
