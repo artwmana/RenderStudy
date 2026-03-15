@@ -39,6 +39,102 @@ def parse_markdown(text: str) -> Document:
     return Document(blocks=blocks)
 
 
+def _handle_heading(tokens, i: int) -> tuple[list, int]:
+    blocks = []
+    tok = tokens[i]
+    level = int(tok.tag[1])
+    inline = tokens[i + 1]
+    text = inline.content.strip()
+    clean_text, number, numbered = _extract_heading_parts(text)
+    blocks.append(Heading(level=level, text=clean_text, numbered=numbered, raw_number=number))
+    return blocks, i + 3
+
+
+def _handle_paragraph(tokens, i: int) -> tuple[list, int]:
+    blocks = []
+    inline = tokens[i + 1]
+    mixed_equation = _extract_equation_from_paragraph(inline.content or "")
+    if mixed_equation is not None:
+        prefix_text, latex, terms, suffix_text = mixed_equation
+        if prefix_text:
+            blocks.append(Paragraph(inline=[InlineText(prefix_text)]))
+        blocks.append(EquationBlock(latex=latex, display=True, number=None, terms=terms or None))
+        if suffix_text:
+            blocks.append(Paragraph(inline=[InlineText(suffix_text)]))
+        return blocks, i + 3
+    display_latex = _extract_display_math_inline(inline.content or "")
+    if display_latex is not None:
+        terms = None
+        consumed = 0
+        if i + 3 < len(tokens):
+            terms, consumed = _collect_term_paragraphs(tokens, i + 3)
+        blocks.append(EquationBlock(latex=display_latex, display=True, number=None, terms=terms))
+        return blocks, i + 3 + consumed
+    inline_elements = _parse_inline(inline.children or [])
+    if len(inline_elements) == 1 and isinstance(inline_elements[0], _InlineImage):
+        image = inline_elements[0]
+        blocks.append(ImageBlock(src=image.src, alt=image.alt, caption=image.title))
+    else:
+        blocks.append(Paragraph(inline=inline_elements))
+    return blocks, i + 3
+
+
+def _handle_list(tokens, i: int) -> tuple[list, int]:
+    blocks = []
+    tok = tokens[i]
+    ordered = tok.type == "ordered_list_open"
+    i += 1
+    items: list[ListItem] = []
+    while i < len(tokens) and tokens[i].type != ("ordered_list_close" if ordered else "bullet_list_close"):
+        if tokens[i].type == "list_item_open":
+            i += 1
+            item_blocks, i = _parse_blocks(tokens, i, stop_types={"list_item_close"})
+            items.append(ListItem(blocks=item_blocks))
+            i += 1  # skip list_item_close
+        else:
+            i += 1
+    blocks.append(ListBlock(items=items, ordered=ordered))
+    return blocks, i + 1
+
+
+def _handle_fence(tokens, i: int) -> tuple[list, int]:
+    tok = tokens[i]
+    return [CodeBlock(language=tok.info or None, code=tok.content)], i + 1
+
+
+def _handle_math_block(tokens, i: int) -> tuple[list, int]:
+    tok = tokens[i]
+    latex = tok.content.strip()
+    terms = None
+    # Look ahead for one or more paragraphs with symbol explanations
+    if i + 1 < len(tokens):
+        terms, consumed = _collect_term_paragraphs(tokens, i + 1)
+        if consumed:
+            i += consumed
+    return [EquationBlock(latex=latex, display=True, number=None, terms=terms)], i + 1
+
+
+def _handle_hr(tokens, i: int) -> tuple[list, int]:
+    return [HorizontalRule()], i + 1
+
+
+def _handle_table(tokens, i: int) -> tuple[list, int]:
+    table_block, i = _parse_table(tokens, i)
+    return [table_block], i
+
+
+_BLOCK_PARSERS = {
+    "heading_open": _handle_heading,
+    "paragraph_open": _handle_paragraph,
+    "bullet_list_open": _handle_list,
+    "ordered_list_open": _handle_list,
+    "fence": _handle_fence,
+    "math_block": _handle_math_block,
+    "hr": _handle_hr,
+    "table_open": _handle_table,
+}
+
+
 def _parse_blocks(tokens, index: int, stop_types: set[str]) -> tuple[list, int]:
     blocks: List = []
     i = index
@@ -46,74 +142,10 @@ def _parse_blocks(tokens, index: int, stop_types: set[str]) -> tuple[list, int]:
         tok = tokens[i]
         if tok.type in stop_types:
             break
-        if tok.type == "heading_open":
-            level = int(tok.tag[1])
-            inline = tokens[i + 1]
-            text = inline.content.strip()
-            clean_text, number, numbered = _extract_heading_parts(text)
-            blocks.append(Heading(level=level, text=clean_text, numbered=numbered, raw_number=number))
-            i += 3
-        elif tok.type == "paragraph_open":
-            inline = tokens[i + 1]
-            mixed_equation = _extract_equation_from_paragraph(inline.content or "")
-            if mixed_equation is not None:
-                prefix_text, latex, terms, suffix_text = mixed_equation
-                if prefix_text:
-                    blocks.append(Paragraph(inline=[InlineText(prefix_text)]))
-                blocks.append(EquationBlock(latex=latex, display=True, number=None, terms=terms or None))
-                if suffix_text:
-                    blocks.append(Paragraph(inline=[InlineText(suffix_text)]))
-                i += 3
-                continue
-            display_latex = _extract_display_math_inline(inline.content or "")
-            if display_latex is not None:
-                terms = None
-                consumed = 0
-                if i + 3 < len(tokens):
-                    terms, consumed = _collect_term_paragraphs(tokens, i + 3)
-                blocks.append(EquationBlock(latex=display_latex, display=True, number=None, terms=terms))
-                i += 3 + consumed
-                continue
-            inline_elements = _parse_inline(inline.children or [])
-            if len(inline_elements) == 1 and isinstance(inline_elements[0], _InlineImage):
-                image = inline_elements[0]
-                blocks.append(ImageBlock(src=image.src, alt=image.alt, caption=image.title))
-            else:
-                blocks.append(Paragraph(inline=inline_elements))
-            i += 3
-        elif tok.type in ("bullet_list_open", "ordered_list_open"):
-            ordered = tok.type == "ordered_list_open"
-            i += 1
-            items: list[ListItem] = []
-            while i < len(tokens) and tokens[i].type != ("ordered_list_close" if ordered else "bullet_list_close"):
-                if tokens[i].type == "list_item_open":
-                    i += 1
-                    item_blocks, i = _parse_blocks(tokens, i, stop_types={"list_item_close"})
-                    items.append(ListItem(blocks=item_blocks))
-                    i += 1  # skip list_item_close
-                else:
-                    i += 1
-            blocks.append(ListBlock(items=items, ordered=ordered))
-            i += 1  # skip list close
-        elif tok.type == "fence":
-            blocks.append(CodeBlock(language=tok.info or None, code=tok.content))
-            i += 1
-        elif tok.type == "math_block":
-            latex = tok.content.strip()
-            terms = None
-            # Look ahead for one or more paragraphs with symbol explanations
-            if i + 1 < len(tokens):
-                terms, consumed = _collect_term_paragraphs(tokens, i + 1)
-                if consumed:
-                    i += consumed
-            blocks.append(EquationBlock(latex=latex, display=True, number=None, terms=terms))
-            i += 1
-        elif tok.type == "hr":
-            blocks.append(HorizontalRule())
-            i += 1
-        elif tok.type == "table_open":
-            table_block, i = _parse_table(tokens, i)
-            blocks.append(table_block)
+        parser = _BLOCK_PARSERS.get(tok.type)
+        if parser:
+            parsed_blocks, i = parser(tokens, i)
+            blocks.extend(parsed_blocks)
         else:
             i += 1
     return blocks, i
