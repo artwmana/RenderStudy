@@ -410,7 +410,7 @@ def _render_table_block(docx: DocxDocument, block: TableBlock, state: RenderStat
     table = docx.add_table(rows=1 + row_count, cols=col_count)
     table.style = "Table Grid"
     table.alignment = WD_TABLE_ALIGNMENT.LEFT
-    _set_table_indent(table, Cm(0.2))
+    _set_table_indent(table, Cm(0))
     if block.header:
         for idx, cell_text in enumerate(block.header):
             cell = table.cell(0, idx)
