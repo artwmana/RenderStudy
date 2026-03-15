@@ -91,3 +91,60 @@ def test_format_endpoint_rejects_empty_request(tmp_path, monkeypatch):
     client = TestClient(app)
     response = client.post("/format", data={})
     assert response.status_code == 400
+
+import io
+import zipfile
+
+def test_format_endpoint_rejects_docx_too_many_entries(monkeypatch):
+    monkeypatch.setattr("RenderStudy.api_server.MAX_DOCX_ENTRIES", 1)
+
+    # Create an in-memory zip file
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("[Content_Types].xml", b"content types")
+        zf.writestr("word/document.xml", b"document")
+
+    client = TestClient(app)
+    response = client.post("/format", files={"file": ("test.docx", buf.getvalue(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")})
+
+    assert response.status_code == 415
+    assert response.json()["detail"] == "Unsupported Media Type: ZIP has too many entries."
+
+def test_format_endpoint_rejects_docx_missing_required_entries():
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("random_file.txt", b"random content")
+
+    client = TestClient(app)
+    response = client.post("/format", files={"file": ("test.docx", buf.getvalue(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")})
+
+    assert response.status_code == 415
+    assert response.json()["detail"] == "Unsupported Media Type: required DOCX entries are missing."
+
+def test_format_endpoint_rejects_docx_too_large_uncompressed(monkeypatch):
+    monkeypatch.setattr("RenderStudy.api_server.MAX_DOCX_UNCOMPRESSED_BYTES", 10)
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("[Content_Types].xml", b"A" * 15)
+        zf.writestr("word/document.xml", b"document")
+
+    client = TestClient(app)
+    response = client.post("/format", files={"file": ("test.docx", buf.getvalue(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")})
+
+    assert response.status_code == 415
+    assert response.json()["detail"] == "Unsupported Media Type: archive uncompressed size is too large."
+
+def test_format_endpoint_rejects_docx_suspicious_compression_ratio(monkeypatch):
+    monkeypatch.setattr("RenderStudy.api_server.MAX_ZIP_RATIO", 1.1)
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", b"A" * 1000)
+        zf.writestr("word/document.xml", b"document")
+
+    client = TestClient(app)
+    response = client.post("/format", files={"file": ("test.docx", buf.getvalue(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")})
+
+    assert response.status_code == 415
+    assert response.json()["detail"] == "Unsupported Media Type: suspicious compression ratio (zip-bomb check)."
