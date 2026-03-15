@@ -56,6 +56,38 @@ def reformat_docx(input_path: str | Path, output_path: str | Path) -> None:
     doc.save(str(out))
 
 
+def _extract_title_page_as_template(input_path: Path, output_path: Path) -> None:
+    """Extracts only the title page from an existing DOCX and saves it to be used as a template."""
+    doc = DocxDocument(str(input_path))
+    paragraphs = _collect_body_paragraphs_for_extraction(doc)
+    split_idx = _find_title_split_index(paragraphs)
+
+    body = doc._body._body
+    if split_idx >= 0 and split_idx < len(paragraphs):
+        split_element = paragraphs[split_idx]._element
+        found = False
+        for child in list(body):
+            if found:
+                if not child.tag.endswith("sectPr"):
+                    body.remove(child)
+            elif child == split_element:
+                found = True
+
+        # Remove page break from split_element to avoid double break when rendering body
+        from docx.oxml.ns import qn
+        for br in split_element.findall(".//w:br", split_element.nsmap):
+            if br.get(qn("w:type")) == "page":
+                br.getparent().remove(br)
+    else:
+        # No title page found. Clear the entire body to use as an empty template,
+        # preserving only sectPr for section properties.
+        for child in list(body):
+            if not child.tag.endswith("sectPr"):
+                body.remove(child)
+
+    doc.save(str(output_path))
+
+
 def rebuild_docx_via_markdown(
     input_path: str | Path,
     output_path: str | Path,
@@ -71,9 +103,16 @@ def rebuild_docx_via_markdown(
     original = DocxDocument(str(src))
     paragraphs = _collect_body_paragraphs_for_extraction(original)
     split_idx = _find_title_split_index(paragraphs)
-    template = _resolve_title_template_path(title_template_path)
     with tempfile.TemporaryDirectory(prefix="renderstudy_docx_") as tmp_dir:
         tmp_root = Path(tmp_dir)
+
+        if title_template_path:
+            template = _resolve_title_template_path(title_template_path)
+        else:
+            extracted_template_path = tmp_root / "extracted_title_template.docx"
+            _extract_title_page_as_template(src, extracted_template_path)
+            template = extracted_template_path
+
         images_dir = tmp_root / "images"
         images_dir.mkdir(parents=True, exist_ok=True)
         md_text = _extract_body_markdown(paragraphs, split_idx + 1, images_dir=images_dir)

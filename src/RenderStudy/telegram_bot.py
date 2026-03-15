@@ -17,6 +17,17 @@ from .utils import configure_logging
 
 SUPPORTED_DOC_EXTS = {".md", ".docx", ".yaml", ".yml"}
 
+USER_LAST_REQUEST_TIME: dict[int, float] = {}
+RATE_LIMIT_SECONDS = 5.0
+
+def _check_rate_limit(user_id: int) -> bool:
+    now = datetime.now().timestamp()
+    last = USER_LAST_REQUEST_TIME.get(user_id, 0.0)
+    if now - last < RATE_LIMIT_SECONDS:
+        return False
+    USER_LAST_REQUEST_TIME[user_id] = now
+    return True
+
 
 def _resolve_title_template() -> Path | None:
     env_path = os.environ.get("RENDERSTUDY_TITLE_TEMPLATE")
@@ -91,6 +102,11 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if update.message is None or not update.message.text:
         return
 
+    user_id = update.message.from_user.id if update.message.from_user else 0
+    if not _check_rate_limit(user_id):
+        await update.message.reply_text("Слишком много запросов. Пожалуйста, подождите.")
+        return
+
     text = update.message.text.strip()
     if not text:
         await update.message.reply_text("Пустой текст. Отправьте содержимое для конвертации.")
@@ -117,6 +133,11 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if update.message is None or update.message.document is None:
         return
 
+    user_id = update.message.from_user.id if update.message.from_user else 0
+    if not _check_rate_limit(user_id):
+        await update.message.reply_text("Слишком много запросов. Пожалуйста, подождите.")
+        return
+
     doc = update.message.document
     name = doc.file_name or "input"
     suffix = Path(name).suffix.lower()
@@ -135,12 +156,12 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await tg_file.download_to_drive(custom_path=str(in_path))
 
         template = _resolve_title_template()
-        if suffix in {".md", ".docx"} and template is None:
+        if suffix == ".md" and template is None:
             await update.message.reply_text(
                 "Нужен титульник. Укажите путь в RENDERSTUDY_TITLE_TEMPLATE."
             )
             return
-        template_for_convert = template if suffix in {".md", ".docx"} else None
+        template_for_convert = template if suffix == ".md" else None
         convert_input_file(
             in_path,
             out_path,

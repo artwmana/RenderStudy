@@ -128,7 +128,7 @@ async def format_endpoint(
                     input_path=in_path,
                     output_path=out_path,
                     use_title_template=False,
-                    title_template_path=title_template if ext in {".md", ".docx"} else None,
+                    title_template_path=title_template if ext == ".md" else None,
                 )
                 out_name = f"{Path(original_name).stem}_formatted.docx"
             else:
