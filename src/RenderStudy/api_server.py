@@ -119,7 +119,10 @@ async def format_endpoint(
 
         try:
             if file is not None:
-                original_name = file.filename or "input"
+                raw_name = file.filename or "input"
+                original_name = os.path.basename(raw_name)
+                if not original_name or original_name in {".", ".."}:
+                    original_name = "input"
                 content = await file.read()
                 ext = _validate_upload_file(original_name, content)
                 in_path = tmp_dir / original_name
