@@ -571,10 +571,9 @@ def _find_body_start_index(paragraphs: list) -> int:
 
 
 def _contains_page_break(paragraph) -> bool:
-    for run in paragraph.runs:
-        for br in run._r.findall(".//w:br", run._r.nsmap):
-            if br.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}type") == "page":
-                return True
+    for br in paragraph._p.findall(".//w:br", paragraph._p.nsmap):
+        if br.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}type") == "page":
+            return True
     return False
 
 
