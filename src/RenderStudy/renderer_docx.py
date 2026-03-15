@@ -28,7 +28,6 @@ from .model import (
     InlineLink,
     InlineText,
     ListBlock,
-    ListItem,
     PageBreak,
     Paragraph,
     TableBlock,
