@@ -118,7 +118,10 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
 
     doc = update.message.document
-    name = doc.file_name or "input"
+    raw_name = doc.file_name or "input"
+    name = os.path.basename(raw_name)
+    if not name or name in {".", ".."}:
+        name = "input"
     suffix = Path(name).suffix.lower()
     if suffix not in SUPPORTED_DOC_EXTS:
         await update.message.reply_text("Поддерживаются только .md, .docx, .yaml, .yml")
