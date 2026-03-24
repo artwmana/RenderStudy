@@ -9,6 +9,7 @@ import zipfile
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 
 from .conversion_service import convert_input_file, convert_text_to_docx
@@ -123,8 +124,9 @@ async def format_endpoint(
                 content = await file.read()
                 ext = _validate_upload_file(original_name, content)
                 in_path = tmp_dir / original_name
-                in_path.write_bytes(content)
-                convert_input_file(
+                await run_in_threadpool(in_path.write_bytes, content)
+                await run_in_threadpool(
+                    convert_input_file,
                     input_path=in_path,
                     output_path=out_path,
                     use_title_template=False,
@@ -139,7 +141,9 @@ async def format_endpoint(
                     )
                 text_bytes = (text or "").encode("utf-8")
                 _validate_text_bytes(text_bytes, ext=".txt")
-                convert_text_to_docx(text=text or "", output_path=out_path, title_template_path=title_template)
+                await run_in_threadpool(
+                    convert_text_to_docx, text=text or "", output_path=out_path, title_template_path=title_template
+                )
                 stem = Path(filename).stem if filename else "text"
                 out_name = f"{stem}_formatted.docx"
         except HTTPException:
