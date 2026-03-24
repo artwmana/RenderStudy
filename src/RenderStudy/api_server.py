@@ -12,6 +12,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 
 from .conversion_service import convert_input_file, convert_text_to_docx
+from .utils import sanitize_filename
 
 app = FastAPI(title="RenderStudy API", version="1.0.0")
 
@@ -119,7 +120,7 @@ async def format_endpoint(
 
         try:
             if file is not None:
-                original_name = file.filename or "input"
+                original_name = sanitize_filename(file.filename, default="input")
                 content = await file.read()
                 ext = _validate_upload_file(original_name, content)
                 in_path = tmp_dir / original_name
@@ -140,7 +141,7 @@ async def format_endpoint(
                 text_bytes = (text or "").encode("utf-8")
                 _validate_text_bytes(text_bytes, ext=".txt")
                 convert_text_to_docx(text=text or "", output_path=out_path, title_template_path=title_template)
-                stem = Path(filename).stem if filename else "text"
+                stem = Path(sanitize_filename(filename, default="text")).stem
                 out_name = f"{stem}_formatted.docx"
         except HTTPException:
             raise

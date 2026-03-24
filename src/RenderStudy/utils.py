@@ -1,8 +1,27 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Optional
+
+
+def sanitize_filename(filename: str | None, default: str = "input") -> str:
+    """
+    Sanitizes a filename to prevent path traversal.
+    Strips directory paths and ignores navigation components ('.' or '..').
+    """
+    if not filename:
+        return default
+
+    # Handle both Windows and POSIX separators
+    filename = filename.replace("\\", "/")
+    base = os.path.basename(filename)
+
+    if not base or base in {".", ".."}:
+        return default
+
+    return base
 
 
 def configure_logging(verbose: bool = False) -> None:

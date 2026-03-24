@@ -13,7 +13,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from .conversion_service import convert_input_file, convert_text_to_docx
-from .utils import configure_logging
+from .utils import configure_logging, sanitize_filename
 
 SUPPORTED_DOC_EXTS = {".md", ".docx", ".yaml", ".yml"}
 
@@ -118,7 +118,7 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
 
     doc = update.message.document
-    name = doc.file_name or "input"
+    name = sanitize_filename(doc.file_name, default="input")
     suffix = Path(name).suffix.lower()
     if suffix not in SUPPORTED_DOC_EXTS:
         await update.message.reply_text("Поддерживаются только .md, .docx, .yaml, .yml")
