@@ -8,6 +8,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
+import aiofiles
 from dotenv import find_dotenv, load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
@@ -109,8 +110,9 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         text_path.write_text(text, encoding="utf-8")
         convert_text_to_docx(text, out_path, title_template_path=template)
         _persist_work("text", text_path, out_path, prefix)
-        with out_path.open("rb") as fp:
-            await update.message.reply_document(document=fp, filename="formatted.docx")
+        async with aiofiles.open(out_path, "rb") as fp:
+            file_data = await fp.read()
+            await update.message.reply_document(document=file_data, filename="formatted.docx")
 
 
 async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -152,8 +154,9 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         _persist_work(kind, in_path, out_path, prefix)
         if suffix == ".docx" and extracted_md_path.exists():
             _persist_markdown_dump(extracted_md_path, prefix)
-        with out_path.open("rb") as fp:
-            await update.message.reply_document(document=fp, filename=out_name)
+        async with aiofiles.open(out_path, "rb") as fp:
+            file_data = await fp.read()
+            await update.message.reply_document(document=file_data, filename=out_name)
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
