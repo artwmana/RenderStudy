@@ -237,6 +237,8 @@ def _compute_heading_number(heading: Heading, state: RenderState) -> str | None:
             top = int(heading.raw_number.split(".")[0])
             state.current_section = top
         except ValueError:
+            # If the raw number doesn't start with a valid integer, safely ignore it.
+            # This handles cases like non-numeric custom prefixes or purely alphabetical headings.
             pass
         return heading.raw_number
 
