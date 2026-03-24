@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 from datetime import datetime
 import logging
 import os
@@ -106,11 +107,11 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         prefix = _work_prefix(update)
         text_path = Path(tmp) / "message_input.txt"
         out_path = Path(tmp) / "message_formatted.docx"
-        text_path.write_text(text, encoding="utf-8")
-        convert_text_to_docx(text, out_path, title_template_path=template)
-        _persist_work("text", text_path, out_path, prefix)
-        with out_path.open("rb") as fp:
-            await update.message.reply_document(document=fp, filename="formatted.docx")
+        await asyncio.to_thread(text_path.write_text, text, encoding="utf-8")
+        await asyncio.to_thread(convert_text_to_docx, text, out_path, title_template_path=template)
+        await asyncio.to_thread(_persist_work, "text", text_path, out_path, prefix)
+        doc_bytes = await asyncio.to_thread(out_path.read_bytes)
+        await update.message.reply_document(document=doc_bytes, filename="formatted.docx")
 
 
 async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -141,7 +142,8 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             )
             return
         template_for_convert = template if suffix in {".md", ".docx"} else None
-        convert_input_file(
+        await asyncio.to_thread(
+            convert_input_file,
             in_path,
             out_path,
             use_title_template=False,
@@ -149,11 +151,15 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             extracted_md_path=extracted_md_path if suffix == ".docx" else None,
         )
         kind = "md" if suffix == ".md" else "docx" if suffix == ".docx" else "text"
-        _persist_work(kind, in_path, out_path, prefix)
-        if suffix == ".docx" and extracted_md_path.exists():
-            _persist_markdown_dump(extracted_md_path, prefix)
-        with out_path.open("rb") as fp:
-            await update.message.reply_document(document=fp, filename=out_name)
+        await asyncio.to_thread(_persist_work, kind, in_path, out_path, prefix)
+
+        def _check_and_dump_md() -> None:
+            if suffix == ".docx" and extracted_md_path.exists():
+                _persist_markdown_dump(extracted_md_path, prefix)
+
+        await asyncio.to_thread(_check_and_dump_md)
+        doc_bytes = await asyncio.to_thread(out_path.read_bytes)
+        await update.message.reply_document(document=doc_bytes, filename=out_name)
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
