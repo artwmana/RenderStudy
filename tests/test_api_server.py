@@ -1,4 +1,6 @@
+import io
 from pathlib import Path
+import zipfile
 
 import pytest
 
@@ -91,3 +93,44 @@ def test_format_endpoint_rejects_empty_request(tmp_path, monkeypatch):
     client = TestClient(app)
     response = client.post("/format", data={})
     assert response.status_code == 400
+
+
+def test_format_endpoint_rejects_too_many_entries(tmp_path, monkeypatch):
+    template = tmp_path / "title.docx"
+    _make_title_template(template)
+    monkeypatch.setenv("RENDERSTUDY_TITLE_TEMPLATE", str(template))
+
+    bomb_buf = io.BytesIO()
+    with zipfile.ZipFile(bomb_buf, "w") as zf:
+        zf.writestr("[Content_Types].xml", b"<Types></Types>")
+        zf.writestr("word/document.xml", b"<w:document></w:document>")
+        for i in range(5000):
+            zf.writestr(f"dummy_{i}.txt", b"a")
+
+    client = TestClient(app)
+    response = client.post(
+        "/format",
+        files={"file": ("bomb.docx", bomb_buf.getvalue(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}
+    )
+    assert response.status_code == 415
+    assert "too many entries" in response.json()["detail"].lower()
+
+def test_format_endpoint_rejects_zip_bomb_ratio(tmp_path, monkeypatch):
+    template = tmp_path / "title.docx"
+    _make_title_template(template)
+    monkeypatch.setenv("RENDERSTUDY_TITLE_TEMPLATE", str(template))
+
+    bomb_buf = io.BytesIO()
+    with zipfile.ZipFile(bomb_buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("[Content_Types].xml", b"<Types></Types>")
+        zf.writestr("word/document.xml", b"<w:document></w:document>")
+        # Create a highly compressible file
+        zf.writestr("bomb.xml", b"0" * 1024 * 1024)
+
+    client = TestClient(app)
+    response = client.post(
+        "/format",
+        files={"file": ("bomb.docx", bomb_buf.getvalue(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}
+    )
+    assert response.status_code == 415
+    assert "suspicious compression ratio" in response.json()["detail"].lower()
