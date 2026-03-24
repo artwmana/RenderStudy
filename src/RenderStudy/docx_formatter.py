@@ -10,6 +10,8 @@ from docx.shared import Cm
 from . import gost_format
 from . import markdown_parser, renderer_docx
 
+RE_HEADING_STYLE = re.compile(r"Heading\s+([1-6])", flags=re.IGNORECASE)
+
 NON_NUMBERED_TITLES = {
     "СОДЕРЖАНИЕ",
     "РЕФЕРАТ",
@@ -301,7 +303,7 @@ def _detect_heading_level(paragraph, text: str) -> int | None:
         return None
     # Prefer explicit Word heading styles if present.
     style_name = getattr(getattr(paragraph, "style", None), "name", "") or ""
-    heading_match = re.match(r"Heading\s+([1-6])", style_name, flags=re.IGNORECASE)
+    heading_match = RE_HEADING_STYLE.match(style_name)
     if heading_match:
         return int(heading_match.group(1))
     if clean.upper() in NON_NUMBERED_TITLES:
@@ -400,7 +402,7 @@ def _is_heading_candidate(paragraph, text: str) -> bool:
     if _looks_like_numbered_heading(clean):
         return True
     style_name = getattr(getattr(paragraph, "style", None), "name", "") or ""
-    heading_match = re.match(r"Heading\s+([1-6])", style_name, flags=re.IGNORECASE)
+    heading_match = RE_HEADING_STYLE.match(style_name)
     if heading_match:
         return True
     return False
