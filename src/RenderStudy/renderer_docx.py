@@ -62,6 +62,9 @@ LATEX_TO_UNICODE = {
     r"\sum": "∑",
 }
 
+_RE_LATEX = re.compile("|".join(re.escape(k) for k in LATEX_TO_UNICODE.keys()))
+
+
 SUBSCRIPT_MAP = {
     "0": "₀",
     "1": "₁",
@@ -420,8 +423,8 @@ def _render_table_block(docx: DocxDocument, block: TableBlock, state: RenderStat
 def _latex_to_plain_text(expr: str, convert_scripts: bool = True) -> str:
     """Convert a small subset of LaTeX commands to Unicode glyphs for DOCX text."""
     text = expr.strip()
-    for latex, uni in LATEX_TO_UNICODE.items():
-        text = text.replace(latex, uni)
+    if "\\" in text:
+        text = _RE_LATEX.sub(lambda m: LATEX_TO_UNICODE[m.group(0)], text)
     if convert_scripts:
         text = _convert_scripts(text, subscript=True)
         text = _convert_scripts(text, subscript=False)
@@ -614,8 +617,8 @@ def _normalize_term_symbol(symbol: str) -> str:
 
 def _append_symbol_with_scripts(paragraph, symbol: str) -> None:
     text = symbol.strip()
-    for latex, uni in LATEX_TO_UNICODE.items():
-        text = text.replace(latex, uni)
+    if "\\" in text:
+        text = _RE_LATEX.sub(lambda m: LATEX_TO_UNICODE[m.group(0)], text)
 
     i = 0
     while i < len(text):
