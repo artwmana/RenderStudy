@@ -1,5 +1,7 @@
 import textwrap
 
+import pytest
+
 from RenderStudy import markdown_parser, yaml_parser
 from RenderStudy.model import (
     EquationBlock,
@@ -102,3 +104,15 @@ def test_parse_mixed_formula_paragraph_with_terms():
         "$n$ – количество элементов;",
         "$S_i$ – число сформированных групп.",
     ]
+
+
+def test_parse_yaml_invalid_root_type():
+    invalid_inputs = [
+        "Just a simple string",
+        "- list item 1\n- list item 2",
+        "42",
+        "true",
+    ]
+    for text in invalid_inputs:
+        with pytest.raises(ValueError, match="YAML root must be a mapping with defined fields."):
+            yaml_parser.parse_yaml_document(text)
