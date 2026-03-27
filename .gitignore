@@ -15,3 +15,4 @@ dist/
 renderstudy_bot_storage/docx/
 renderstudy_bot_storage/md/
 .env
+renderstudy_bot_storage/
