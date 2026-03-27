@@ -144,9 +144,9 @@ def _find_title_split_index(paragraphs: list) -> int:
     return 0 if paragraphs else -1
 
 
-class _MarkdownExtractor:
-    def __init__(self, paragraphs: list, images_dir: Path | None = None) -> None:
-        self.paragraphs = paragraphs
+class _BodyMarkdownExtractor:
+    def __init__(self, body_paragraphs: list, images_dir: Path | None):
+        self.body_paragraphs = body_paragraphs
         self.images_dir = images_dir
         self.lines: list[str] = []
         self.code_buffer: list[str] = []
@@ -156,14 +156,50 @@ class _MarkdownExtractor:
         self.idx = 0
 
     def extract(self) -> str:
-        while self.idx < len(self.paragraphs):
-            self._process_paragraph()
+        while self.idx < len(self.body_paragraphs):
+            paragraph = self.body_paragraphs[self.idx]
+            image_refs: list[str] = []
+            if self.images_dir is not None:
+                image_refs, self.image_counter = _extract_paragraph_images(
+                    paragraph, self.images_dir, self.image_counter
+                )
+
+            text = _normalize_markdown_artifacts(paragraph.text)
+            formula_text = _extract_formula_text(paragraph, text)
+            list_kind = _detect_list_kind(paragraph)
+
+            if image_refs:
+                if self._process_images(image_refs, text):
+                    continue
+
+            if not text:
+                if self._process_empty_text(formula_text):
+                    continue
+
+            if _is_markdown_fence_line(text):
+                # Fence markers from previously exported markdown should not leak into
+                # extracted markdown; otherwise they may swallow following content.
+                self.idx += 1
+                continue
+
+            if formula_text:
+                if self._process_formula(formula_text):
+                    continue
+
+            heading_level = _detect_heading_level(paragraph, text)
+            if heading_level is not None:
+                self._process_heading(heading_level, text)
+            else:
+                if self._process_text(text, list_kind):
+                    continue
 
         if self.in_list:
             self.lines.append("")
         self._flush_code_buffer()
+
         while self.lines and self.lines[-1] == "":
             self.lines.pop()
+
         return "\n".join(self.lines)
 
     def _flush_code_buffer(self) -> None:
@@ -176,53 +212,19 @@ class _MarkdownExtractor:
         self.lines.append("")
         self.code_buffer.clear()
 
-    def _end_list(self) -> None:
+    def _process_images(self, image_refs: list[str], text: str) -> bool:
         if self.in_list:
             self.lines.append("")
             self.in_list = False
         self.semicolon_list_mode = False
-
-    def _process_paragraph(self) -> None:
-        paragraph = self.paragraphs[self.idx]
-        image_refs: list[str] = []
-        if self.images_dir is not None:
-            image_refs, self.image_counter = _extract_paragraph_images(paragraph, self.images_dir, self.image_counter)
-        text = _normalize_markdown_artifacts(paragraph.text)
-        formula_text = _extract_formula_text(paragraph, text)
-        list_kind = _detect_list_kind(paragraph)
-
-        if image_refs:
-            if self._process_images(image_refs, text):
-                return
-
-        if not text:
-            self._process_empty_text(formula_text)
-            return
-
-        if _is_markdown_fence_line(text):
-            self.idx += 1
-            return
-
-        if formula_text:
-            self._process_formula(formula_text)
-            return
-
-        heading_level = _detect_heading_level(paragraph, text)
-        if heading_level is not None:
-            self._process_heading(heading_level, text)
-            return
-
-        self._process_text_line(text, list_kind)
-
-    def _process_images(self, image_refs: list[str], text: str) -> bool:
-        self._end_list()
         self._flush_code_buffer()
+
         image_caption = _extract_figure_caption(text)
         skip_next_caption = False
 
         if image_caption is None:
-            for look_ahead in range(self.idx + 1, min(len(self.paragraphs), self.idx + 6)):
-                next_text = self.paragraphs[look_ahead].text.strip()
+            for look_ahead in range(self.idx + 1, min(len(self.body_paragraphs), self.idx + 6)):
+                next_text = self.body_paragraphs[look_ahead].text.strip()
                 if not next_text:
                     continue
                 image_caption = _extract_figure_caption(next_text)
@@ -241,62 +243,76 @@ class _MarkdownExtractor:
 
         if skip_next_caption:
             self.idx += 1
-
         if not text:
             self.idx += 1
             return True
-
         if image_caption is not None:
             # Caption was embedded in this paragraph; it is now attached to image markdown.
             self.idx += 1
             return True
-
         return False
 
-    def _process_empty_text(self, formula_text: str | None) -> None:
-        self._end_list()
+    def _process_empty_text(self, formula_text: str | None) -> bool:
+        if self.in_list:
+            self.lines.append("")
+            self.in_list = False
+        self.semicolon_list_mode = False
         if formula_text:
             self._flush_code_buffer()
             self.lines.append(f"$${formula_text}$$")
             self.lines.append("")
             self.idx += 1
-            return
+            return True
 
         self._flush_code_buffer()
         if self.lines and self.lines[-1] != "":
             self.lines.append("")
         self.idx += 1
+        return True
 
-    def _process_formula(self, formula_text: str) -> None:
-        self._end_list()
+    def _process_formula(self, formula_text: str) -> bool:
+        if self.in_list:
+            self.lines.append("")
+            self.in_list = False
+        self.semicolon_list_mode = False
         self._flush_code_buffer()
         self.lines.append(f"$${formula_text}$$")
         self.lines.append("")
         self.idx += 1
+        return True
 
     def _process_heading(self, heading_level: int, text: str) -> None:
-        self._end_list()
+        if self.in_list:
+            self.lines.append("")
+            self.in_list = False
+        self.semicolon_list_mode = False
         self._flush_code_buffer()
         self.lines.append(f"{'#' * heading_level} {text}")
         self.lines.append("")
         self.idx += 1
 
-    def _process_text_line(self, text: str, list_kind: str | None) -> None:
+    def _process_text(self, text: str, list_kind: str | None) -> bool:
         formatted = _format_term_line(text)
+
         if _looks_like_code_text(formatted):
-            self._end_list()
+            if self.in_list:
+                self.lines.append("")
+                self.in_list = False
+            self.semicolon_list_mode = False
             self.code_buffer.append(formatted)
             self.idx += 1
-            return
+            return True
 
+        # Rule priority: lines inferred from ":" + ";" must be bullets.
         if self.semicolon_list_mode and _looks_like_semicolon_item(formatted):
             self._flush_code_buffer()
             self.lines.append(f"- {formatted}")
             self.in_list = True
+            # Dot usually marks the final item in such list.
             if formatted.strip().endswith("."):
                 self.semicolon_list_mode = False
             self.idx += 1
-            return
+            return True
 
         if list_kind is not None:
             self._flush_code_buffer()
@@ -305,13 +321,14 @@ class _MarkdownExtractor:
             self.in_list = True
             self.semicolon_list_mode = False
             self.idx += 1
-            return
+            return True
 
         if self.in_list:
             self.lines.append("")
             self.in_list = False
 
         self._flush_code_buffer()
+
         if _should_join_with_previous(self.lines, formatted):
             target_idx = _last_non_empty_index(self.lines)
             if target_idx is not None:
@@ -323,10 +340,12 @@ class _MarkdownExtractor:
 
         self.semicolon_list_mode = formatted.endswith(":")
         self.idx += 1
+        return True
+
 
 def _extract_body_markdown(paragraphs: list, start_idx: int, images_dir: Path | None = None) -> str:
     body_paragraphs = _trim_old_title_tail(paragraphs[start_idx:])
-    extractor = _MarkdownExtractor(body_paragraphs, images_dir)
+    extractor = _BodyMarkdownExtractor(body_paragraphs, images_dir)
     return extractor.extract()
 
 
