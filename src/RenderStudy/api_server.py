@@ -119,7 +119,10 @@ async def format_endpoint(
 
         try:
             if file is not None:
-                original_name = file.filename or "input"
+                raw_name = file.filename or "input"
+                original_name = os.path.basename(raw_name)
+                if not original_name or original_name in {".", ".."}:
+                    original_name = "input"
                 content = await file.read()
                 ext = _validate_upload_file(original_name, content)
                 in_path = tmp_dir / original_name
@@ -141,10 +144,7 @@ async def format_endpoint(
                 text_bytes = (text or "").encode("utf-8")
                 _validate_text_bytes(text_bytes, ext=".txt")
                 await run_in_threadpool(
-                    convert_text_to_docx,
-                    text=text or "",
-                    output_path=out_path,
-                    title_template_path=title_template,
+                    convert_text_to_docx, text=text or "", output_path=out_path, title_template_path=title_template
                 )
                 stem = Path(filename).stem if filename else "text"
                 out_name = f"{stem}_formatted.docx"
