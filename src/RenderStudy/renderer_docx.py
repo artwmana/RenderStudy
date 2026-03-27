@@ -62,6 +62,9 @@ LATEX_TO_UNICODE = {
     r"\sum": "∑",
 }
 
+_RE_LATEX = re.compile("|".join(re.escape(k) for k in LATEX_TO_UNICODE.keys()))
+
+
 SUBSCRIPT_MAP = {
     "0": "₀",
     "1": "₁",
@@ -176,24 +179,9 @@ def _start_body_section_with_page_one(docx: DocxDocument) -> None:
 
 
 def _dispatch_block(docx: DocxDocument, block: Block, state: RenderState) -> None:
-    if isinstance(block, Heading):
-        _render_heading(docx, block, state)
-    elif isinstance(block, Paragraph):
-        _render_paragraph(docx, block.inline)
-    elif isinstance(block, ListBlock):
-        _render_list(docx, block, state)
-    elif isinstance(block, CodeBlock):
-        _render_code_block(docx, block)
-    elif isinstance(block, EquationBlock):
-        _render_equation_block(docx, block, state)
-    elif isinstance(block, ImageBlock):
-        _render_image_block(docx, block, state)
-    elif isinstance(block, HorizontalRule):
-        _render_horizontal_rule(docx)
-    elif isinstance(block, TableBlock):
-        _render_table_block(docx, block, state)
-    elif isinstance(block, PageBreak):
-        docx.add_page_break()
+    handler = _BLOCK_HANDLERS.get(type(block))
+    if handler:
+        handler(docx, block, state)
 
 
 def _add_blank_line(docx: DocxDocument) -> None:
@@ -237,6 +225,8 @@ def _compute_heading_number(heading: Heading, state: RenderState) -> str | None:
             top = int(heading.raw_number.split(".")[0])
             state.current_section = top
         except ValueError:
+            # If the raw number doesn't start with a valid integer, safely ignore it.
+            # This handles cases like non-numeric custom prefixes or purely alphabetical headings.
             pass
         return heading.raw_number
 
@@ -433,8 +423,8 @@ def _render_table_block(docx: DocxDocument, block: TableBlock, state: RenderStat
 def _latex_to_plain_text(expr: str, convert_scripts: bool = True) -> str:
     """Convert a small subset of LaTeX commands to Unicode glyphs for DOCX text."""
     text = expr.strip()
-    for latex, uni in LATEX_TO_UNICODE.items():
-        text = text.replace(latex, uni)
+    if "\\" in text:
+        text = _RE_LATEX.sub(lambda m: LATEX_TO_UNICODE[m.group(0)], text)
     if convert_scripts:
         text = _convert_scripts(text, subscript=True)
         text = _convert_scripts(text, subscript=False)
@@ -627,8 +617,8 @@ def _normalize_term_symbol(symbol: str) -> str:
 
 def _append_symbol_with_scripts(paragraph, symbol: str) -> None:
     text = symbol.strip()
-    for latex, uni in LATEX_TO_UNICODE.items():
-        text = text.replace(latex, uni)
+    if "\\" in text:
+        text = _RE_LATEX.sub(lambda m: LATEX_TO_UNICODE[m.group(0)], text)
 
     i = 0
     while i < len(text):
@@ -689,3 +679,16 @@ def _set_table_indent(table, indent: Cm) -> None:
     ind.set(qn("w:w"), str(int(indent.twips)))
     ind.set(qn("w:type"), "dxa")
     tbl_pr.append(ind)
+
+
+_BLOCK_HANDLERS = {
+    Heading: _render_heading,
+    Paragraph: lambda docx, block, state: _render_paragraph(docx, block.inline),
+    ListBlock: _render_list,
+    CodeBlock: lambda docx, block, state: _render_code_block(docx, block),
+    EquationBlock: _render_equation_block,
+    ImageBlock: _render_image_block,
+    HorizontalRule: lambda docx, block, state: _render_horizontal_rule(docx),
+    TableBlock: _render_table_block,
+    PageBreak: lambda docx, block, state: docx.add_page_break(),
+}
