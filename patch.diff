@@ -1,0 +1,40 @@
+--- src/RenderStudy/api_server.py
++++ src/RenderStudy/api_server.py
+@@ -21,6 +21,8 @@
+ MAX_DOCX_UNCOMPRESSED_BYTES = 100 * 1024 * 1024  # 100 MB
+ MAX_DOCX_ENTRIES = 5000
+ MAX_ZIP_RATIO = 200.0
++MAX_UPLOAD_SIZE = 100 * 1024 * 1024  # 100 MB
++MAX_TEXT_SIZE = 10 * 1024 * 1024  # 10 MB
+
+
+ def _resolve_title_template() -> Path | None:
+@@ -109,6 +111,8 @@
+         raise HTTPException(status_code=400, detail="Provide either form field 'file' or non-empty 'text'.")
+     if file is not None and text is not None:
+         raise HTTPException(status_code=400, detail="Send either 'file' or 'text', not both.")
++    if text is not None and len(text.encode("utf-8")) > MAX_TEXT_SIZE:
++        raise HTTPException(status_code=413, detail="Payload Too Large: text exceeds limit.")
+
+     with tempfile.TemporaryDirectory(prefix="renderstudy_api_") as tmp:
+         tmp_dir = Path(tmp)
+@@ -121,7 +125,18 @@
+                 original_name = os.path.basename(raw_name)
+                 if not original_name or original_name in {".", ".."}:
+                     original_name = "input"
+-                content = await file.read()
++
++                total_read = 0
++                chunks = []
++                while True:
++                    chunk = await file.read(1024 * 1024)
++                    if not chunk:
++                        break
++                    total_read += len(chunk)
++                    if total_read > MAX_UPLOAD_SIZE:
++                        raise HTTPException(status_code=413, detail="Payload Too Large: file exceeds limit.")
++                    chunks.append(chunk)
++                content = b"".join(chunks)
+                 ext = _validate_upload_file(original_name, content)
+                 in_path = tmp_dir / original_name
+                 await run_in_threadpool(in_path.write_bytes, content)
