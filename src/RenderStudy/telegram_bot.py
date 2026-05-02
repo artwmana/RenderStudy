@@ -123,6 +123,10 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
 
     doc = update.message.document
+    if doc.file_size is not None and doc.file_size > 20 * 1024 * 1024:
+        await update.message.reply_text("Файл слишком большой. Максимальный размер - 20 МБ.")
+        return
+
     raw_name = doc.file_name or "input"
     name = os.path.basename(raw_name)
     if not name or name in {".", ".."}:
