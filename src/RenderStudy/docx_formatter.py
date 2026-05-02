@@ -21,6 +21,8 @@ NON_NUMBERED_TITLES = {
     "ПРИЛОЖЕНИЯ",
 }
 
+_RE_GOAL = re.compile(r"\bцель\b", flags=re.IGNORECASE)
+
 
 def reformat_docx(input_path: str | Path, output_path: str | Path) -> None:
     """Normalize an existing DOCX to project GOST formatting.
@@ -406,7 +408,7 @@ def _first_non_blank_index(paragraphs: list) -> int | None:
 
 def _find_goal_index(paragraphs: list) -> int | None:
     for idx, paragraph in enumerate(paragraphs[:40]):
-        if re.search(r"\bцель\b", paragraph.text, flags=re.IGNORECASE):
+        if _RE_GOAL.search(paragraph.text):
             return idx
     return None
 
